@@ -21,6 +21,5 @@ Projekt został zaprojektowany jako skrypt konsolowy w Pythonie.
 - pandas
 - openpyxl
 
-###
-Instalacja wymaganych pakietów:
+### Instalacja wymaganych pakietów:
 - pip install pandas openpyxl
