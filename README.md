@@ -1,3 +1,4 @@
+## Opis programu
 Program służy do automatycznego pobierania załączników z wiadomości e-mail.
 Pozwala w prosty sposób określić zakres dat, wybrać grupę użytkowników, a następnie zapisać wszystkie ich załączniki w przypisanych katalogach.
 
