@@ -7,7 +7,7 @@ Projekt został zaprojektowany jako skrypt konsolowy w Pythonie.
 ## Funkcjonalności
 - Logowanie do skrzynki IMAP z użyciem podanego adresu i portu
 - Możliwość zapisu i wczytania konfiguracji
-- Wybór pliku Excel z listą użytkowników  
+- Wybór pliku Excel zawierającego listę użytkowników  
 - Wybór zakresu czasu (np. „dzisiaj”, „od-do”, „od-do dzisiaj”)  
 - Wyszukiwanie wiadomości od wskazanych użytkowników  
 - Pobieranie wszystkich załączników z tych wiadomości  
