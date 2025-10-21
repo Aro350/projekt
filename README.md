@@ -16,6 +16,7 @@ Projekt został zaprojektowany jako skrypt konsolowy w Pythonie.
 
 ## Wymagania
 ### System:
+- Winows / Linux
 - Python 3.10 lub nowszy  
 
 ### Biblioteki:
