@@ -1,5 +1,5 @@
 ## Opis programu
-Program służy do automatycznego pobierania załączników z wiadomości e-mail.
+Program służy do automatycznego pobierania załączników z wiadomości e-mail na podstawie listy użytkowników zawartej w pliku programu Excel.
 Pozwala w prosty sposób określić zakres dat, wybrać grupę użytkowników, a następnie zapisać wszystkie ich załączniki w przypisanych katalogach.
 
 Projekt został zaprojektowany jako skrypt konsolowy w Pythonie.
