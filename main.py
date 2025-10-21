@@ -756,7 +756,7 @@ class UserFile:
 
                 users = users.reset_index(drop=True)
 
-                if "email" not in str(users.iloc[0]).lower():
+                if "@" not in str(users.iloc[0]).lower():
                     users.columns = users.iloc[0]
                     users = users[1:].reset_index(drop=True)
 
