@@ -14,7 +14,9 @@ import datetime as dt
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename, asksaveasfilename, askdirectory
 
-
+#---------------------------------------------------------
+#Klasa odpowiadająca za działanie programu
+#---------------------------------------------------------
 class App:
     def __init__(self):
         self.config = Config()
@@ -109,6 +111,9 @@ class App:
         self.config.saveParameters(self.mail_info, self.user_file, self.mailbox)
         self.config.askForSave()
 
+#---------------------------------------------------------
+#Klasa obsługująca użytkowników i ich załączniki
+#---------------------------------------------------------
 class User:
     username: str
     year: str
@@ -117,7 +122,34 @@ class User:
         self.username = username
         self.year = year
 
+    def getAttachments(self, connection: "Connection", message_id_list, save_path):
+        for message in message_id_list:
+            status, message_data = connection.fetch(message,"(RFC822)")
+            message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
 
+            for attachment in message_content.iter_attachments():
+                filename = attachment.get_filename()
+                payload = attachment.get_payload(decode=True)
+                print(f"Znaleziono: {filename}")
+                self.saveAttachments(payload, filename, save_path)
+
+    def saveAttachments(self, payload,filename,save_path):
+        full_save_path = f"{save_path}/{self.username}"
+        os.makedirs(full_save_path, exist_ok=True)
+        try:
+            if os.path.exists(os.path.join(full_save_path, filename)):
+                print(f"Plik {filename} użytkownika {self.username} już istnieje.")
+            else:
+                with open(f"{full_save_path}/{filename}","wb") as f:
+                    f.write(payload)
+            print(f"{full_save_path}")
+
+        except Exception as e:
+            print(f"Błąd zapisu pliku. {e}")
+
+#---------------------------------------------------------
+#Klasa obsługująca czas
+#---------------------------------------------------------
 class Time:
     current_date = None
     timestamp_list = None
@@ -151,6 +183,9 @@ class Time:
             output += str(self.timestamp_list[0])
         print(output)
 
+    # ---------------------------------------------------------
+    # Wybieranie zakresu czasu
+    # ---------------------------------------------------------
     def getTimestamp(self):
         print("**************************\n"
               "*  Wybierz zakres czasu  *\n"
@@ -184,6 +219,9 @@ class Time:
                 print("Błędna wartość.\n")
                 continue
 
+    # ---------------------------------------------------------
+    # Pobieranie czasu od użytkownika
+    # ---------------------------------------------------------
     def setTimestamp(self):
         match self.getTimestamp():
             case 1:  # dzisiaj
@@ -336,6 +374,11 @@ class Time:
             except ValueError:
                 print("Wybierz 0-3\n")
 
+
+#---------------------------------------------------------
+# Klasa obsługująca zapisywanie i odczytywanie
+# zapisanej konfiguracji
+#---------------------------------------------------------
 class Config:
     address: str
     port: int
@@ -421,6 +464,10 @@ class Config:
     #           "2. Skrzynkę\n"
     #           "3. Plik z użytkownikami\n")
 
+
+#---------------------------------------------------------
+# Klasa obsługująca dane logowania użytkownika
+#---------------------------------------------------------
 class UserCredentials:
     username: str
     password: str
@@ -474,6 +521,10 @@ class UserCredentials:
                 break
             except Exception as e:
                 print(e)
+
+#---------------------------------------------------------
+# Klasa obsługująca informacje na temat skrzynki pocztowej
+#---------------------------------------------------------
 
 class MailInfo:
     address: str
@@ -533,6 +584,10 @@ class MailInfo:
         self.getAddress()
         self.getPort()
 
+
+#---------------------------------------------------------
+# Klasa obsługująca połączenie z serwerem pocztowym
+#---------------------------------------------------------
 class Connection:
     connect_host = None
 
@@ -549,6 +604,9 @@ class Connection:
               "*  Połączono...  *\n"
               "******************")
 
+    # ---------------------------------------------------------
+    # Połączenie z serwerem pocztowym
+    # ---------------------------------------------------------
     def connect(self):
         exit_flag = 0
         while True:
@@ -584,6 +642,9 @@ class Connection:
                 print(f"\n{e}")
                 exit()
 
+    # ---------------------------------------------------------
+    # Logowanie do serwera pocztowego
+    # ---------------------------------------------------------
     def login(self, user_credentials:UserCredentials):
         # username = ""
         # password = ""
@@ -601,7 +662,9 @@ class Connection:
             except Exception as e:
                 print(f"\n{e}")
 
-
+#---------------------------------------------------------
+# Klasa obsługująca wybór skrzynki pocztowej
+#---------------------------------------------------------
 class Mailbox:
     mailbox_name: str
     all_mailboxes: list
@@ -672,6 +735,10 @@ class Mailbox:
 
         self.connection.connect_host.select(self.mailbox_name)
 
+
+#---------------------------------------------------------
+# Klasa obsługująca plik z użytkownikami
+#---------------------------------------------------------
 class UserFile:
     file_location: str
     users_list: list
@@ -690,6 +757,9 @@ class UserFile:
     def getFromConfig(self, config:Config):
         self.file_location = config.user_file_location
 
+    # ---------------------------------------------------------
+    # Pobranie lokalizacji pliku
+    # ---------------------------------------------------------
     def getUserFileLocation(self):
         self.user_fileText()
         Tk().withdraw()
@@ -742,6 +812,9 @@ class UserFile:
     #         return 1
     #     raise ValueError("Błędny plik. Spróbuj ponownie.")
 
+    # ---------------------------------------------------------
+    # Konwersja danych z excela
+    # ---------------------------------------------------------
     def convertData(self):
         while True:
             try:
@@ -797,6 +870,10 @@ class UserFile:
 class InvalidUserFile(Exception):
     pass
 
+#---------------------------------------------------------
+# Klasa obsługująca pobieranie danych z wybranej skrzynki
+# pocztowej
+#---------------------------------------------------------
 class MailData:
     connection = None
     users_list = None
@@ -811,6 +888,9 @@ class MailData:
         self.query = []
         self.save_path = ""
 
+    # ---------------------------------------------------------
+    # Tworzenie zapytania dla wybranej daty
+    # ---------------------------------------------------------
     def makeQuery(self):
         quotes = ["ON","SINCE","BEFORE"]
         index = 0
@@ -822,39 +902,17 @@ class MailData:
             index += 1
         print(self.query)
 
+    # ---------------------------------------------------------
+    # Pobranie wiadomości i załączników od danego użytkownika
+    # z danego zakresu czasu
+    # ---------------------------------------------------------
     def getMessage(self):
         self.makeQuery()
         for user in self.users_list:
             status, data = self.connection.search(None,'From',f'"{user.username}"', *self.query)
             print(data)
             message_id_list = data[0].split()
-            self.getAttachments(message_id_list, user.username)
-            time.sleep(2)
-
-    def getAttachments(self, message_id_list, username):
-        for message in message_id_list:
-            status, message_data = self.connection.fetch(message,"(RFC822)")
-            message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
-
-            for attachment in message_content.iter_attachments():
-                filename = attachment.get_filename()
-                payload = attachment.get_payload(decode=True)
-                print(f"Znaleziono: {filename}")
-                self.saveAttachments(payload,username,filename)
-
-    def saveAttachments(self, payload, username,filename):
-        full_save_path = f"{self.save_path}/{username}"
-        os.makedirs(full_save_path, exist_ok=True)
-        try:
-            if os.path.exists(os.path.join(full_save_path, filename)):
-                print(f"Plik {filename} użytkownika {username} już istnieje.")
-            else:
-                with open(f"{full_save_path}/{filename}","wb") as f:
-                    f.write(payload)
-            print(f"{full_save_path}")
-
-        except Exception as e:
-            print(f"Błąd zapisu pliku. {e}")
+            user.getAttachments(self.connection, message_id_list, self.save_path)
 
     def saveMessage(self):
         print("******************************************\n"
@@ -862,6 +920,9 @@ class MailData:
               "******************************************\n"
               "**  Pliki zostaną zapisane w odpowiednich folderach w podanej lokalizacji  **")
 
+    # ---------------------------------------------------------
+    # Pobranie lokalizacji do zapisu załączników
+    # ---------------------------------------------------------
     def getSaveLocation(self):
         Tk().withdraw()
         self.saveMessage()
