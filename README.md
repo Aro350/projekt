@@ -5,7 +5,7 @@ Pozwala w prosty sposób określić zakres dat, wybrać grupę użytkowników, a
 Projekt został zaprojektowany jako skrypt konsolowy w Pythonie z dodatkiem interaktywnych okien pozwalających na wybieranie plików, zamiast wpisywania całych ścieżek ręcznie.
 
 ## Funkcjonalności
-- Logowanie do skrzynki IMAP z użyciem podanego adresu i portu
+- Logowanie do skrzynki pocztowej wykorzystując POP3 i IMAP z użyciem podanego adresu i portu
 - Możliwość zapisu i wczytania konfiguracji
 - Wybór pliku Excel zawierającego listę użytkowników  
 - Wybór zakresu czasu (np. „dzisiaj”, „od-do”, „od-do dzisiaj”)  
