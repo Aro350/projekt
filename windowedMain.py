@@ -3,7 +3,6 @@ import imaplib
 import os
 import socket
 import time
-from doctest import master
 
 from email.message import EmailMessage
 from email import policy
