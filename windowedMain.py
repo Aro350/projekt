@@ -12,7 +12,6 @@ from email.parser import BytesParser
 import poplib
 from email.utils import parsedate_to_datetime
 from poplib import error_proto
-from tkinter.constants import DISABLED
 from tkinter.messagebox import askyesno, askyesnocancel, showwarning, showerror, showinfo
 
 import pandas as pd
@@ -512,7 +511,7 @@ class MainWindow:
             self.login_button.config(state=tk.DISABLED)
 
         if self.app_state.logged_in:
-            self.login_button.config(state=DISABLED)
+            self.login_button.config(state=tk.DISABLED)
             self.login_text.config(text=self.connection.username)
 
     def getUserFileLocation(self):
