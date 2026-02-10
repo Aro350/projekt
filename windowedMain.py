@@ -14,7 +14,6 @@ from email.utils import parsedate_to_datetime
 from poplib import error_proto
 from time import strptime
 from tkinter.messagebox import askyesno, askyesnocancel, showwarning, showerror, showinfo
-from turtledemo.clock import current_day
 
 import pandas as pd
 import json
