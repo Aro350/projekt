@@ -1,3 +1,5 @@
+#TODO
+#Edytować makeQuery z MailData
 import datetime
 import imaplib
 import os
@@ -33,21 +35,22 @@ class App:
         self.app_state = AppState()
         self.connection = Connection()
         self.mail_details = MailDetails()
-        self.mail_data = MailData()
-
+        self.mailbox_details = MailboxDetails()
         self.config = Config()
         self.user_file = UserFile()
         self.date = Date()
+        self.file_save_path = FileSavePath()
 
         self.main_window = MainWindow(
             self.root,
             self.app_state,
             self.mail_details,
-            self.mail_data,
+            self.mailbox_details,
             self.connection,
             self.config,
             self.user_file,
-            self.date
+            self.date,
+            self.file_save_path
         )
 
     def run(self):
@@ -61,10 +64,11 @@ class AppState:
         self.state = {
             "mail_connected" : False,
             "logged_in" : False,
+            "mailbox_set" : False,
             "user_file_set" : False,
             "save_loc_set" : False,
             "date_set" : False,
-            "save_path_set" : False
+            "save_method_set" : False
         }
 
     def checkAppStatus(self):
@@ -205,94 +209,136 @@ class MailDetails:
         self.protocol = config.protocol
 
 class MailboxDetails:
-    def __init__(self, connection: Connection):
-        self.connection = connection
-        self.mailbox_name = ""
+    def __init__(self):
         self.mailbox_list = []
-        self.mailboxChoice = ""
+        self.choosen_mailbox = ""
 
-    def getFromConfig(self,config:Config):
-        self.mailbox_name = config.mailbox
-        self.connection.connect_host.select(self.mailbox_name)
+    # def getFromConfig(self,config:Config):
+    #     self.mailbox_name = config.mailbox
+    #     self.connection.connect_host.select(self.mailbox_name)
 
-    def getAllMailboxes(self):
-        for i in (self.connection.connect_host.list()[1]):
+    def getAllMailboxes(self, connection):
+        for i in (connection.connect_host.list()[1]):
             if not b"doveco" in i:
                 self.mailbox_list.append(str(i).split(".")[1][2:-1])
-
-    def printAllMailboxes(self):
-        # mailboxes = {}
-        for num, item in enumerate(self.mailbox_list, start=1):
-            # mailboxes[str(num)] = item
-            print(f"{num}. {item}")
-
-    def getMailboxChoice(self):
-        while True:
-            try:
-                chosen_mailbox_number = int(input("Podaj numer: "))
-                if 1 <= chosen_mailbox_number <= len(self.mailbox_list):
-                    if not self.askValidMailbox(self.mailbox_list[chosen_mailbox_number-1]):
-                        continue
-                    break
-                else:
-                    print("Błędna odpowiedź. Spróbuj ponownie.")
-                    continue
-            except ValueError:
-                print("Błędna odpowiedź. Spróbuj ponownie.")
-                continue
-            except Exception as e:
-                print(e)
-
-    def askValidMailbox(self,mailbox):
-        while True:
-            print(f"Wybrana skrzynka: {mailbox}")
-            choice = input("Kontynuować? (T/N): ").strip().upper()
-            match choice:
-                case "T":
-                    self.mailbox_name = mailbox
-                    return 1
-                case "N":
-                    return 0
-                case _:
-                    print("Błędna odpowiedź")
-                    continue
-
-    def mailboxText(self):
-        print("*************************\n"
-              "*    Wybierz katalog    *\n"
-              "*************************")
-
-    def mailboxSelect(self):
-        self.mailboxText()
-        self.getAllMailboxes()
-        self.printAllMailboxes()
-        self.getMailboxChoice()
-
-        self.connection.connect_host.select(self.mailbox_name)
-
+        return self.mailbox_list
 
 class MailData:
+    def __init__(self,connection, user_file, date, file_save_path):
+        self.connection:Connection = connection.connect_host
+        self.users_list = user_file.users_class_list
+        self.date_choice = date.date_range
+        self.date_list = date.date_list
+        self.query = []
+        self.file_save_path:FileSavePath = file_save_path
+
+    # ---------------------------------------------------------
+    # Tworzenie zapytania dla wybranej daty
+    # ---------------------------------------------------------
+    def makeQuery(self):
+        quotes = ["ON","SINCE","BEFORE"]
+        index = 0
+        for date in self.date_list:
+            if len(self.date_list) == 1:
+                self.query = [quotes[index], date.strftime("%d-%b-%Y")]
+                break
+            self.query += [quotes[index+1], date.strftime("%d-%b-%Y")]
+            index += 1
+        print(self.query)
+
+    # ---------------------------------------------------------
+    # Pobranie wiadomości i załączników od danego użytkownika
+    # z danego zakresu czasu
+    # ---------------------------------------------------------
+    # def downloadAttachment(self):
+    #     self.makeQuery()
+    #     for user in self.users_list:
+    #         status, data = self.connection.search(None,'From',f'"{user.username}"', *self.query)
+    #         print(data)
+    #         message_id_list = data[0].split()
+    #         user.getAttachments(self.connection, message_id_list, self.file_save_path)
+
+    def getMessage(self):
+        self.makeQuery()
+        if self.connection.protocol=="IMAP":
+            self.getImapMessage()
+        else:
+            self.getPopMessage()
+
+    def getImapMessage(self):
+        for user in self.users_list:
+            status, data = self.connection.search(None, 'FROM', f'"{user.username}"', *self.query)
+            mids = data[0].split()
+            user.getImapAttachments(self.connection, mids, self.save_path)
+
+    def getPopMessage(self):
+        count,_ = self.connection.stat()
+        for i in range(count,0,-1):
+            resp = self.connection.retr(i)
+            joined = b"\r\n".join(resp[1])
+            msg = BytesParser(policy=policy.default).parsebytes(joined)
+            user = self.checkUser(msg.get("From",""))
+            if user:
+                user.getAttachment(msg, self.save_path)
+
+
+
+
+class FileSavePath:
     def __init__(self):
-        self.save_path = ""
-        self.data = ""
+        self.save_location = ""
+        self.save_method = []
+        self.save_method_for_user = []
+        self.full_save_path = ""
+
+    def makeSavePath(self):
+
+        # self.full_save_path = str(self.save_location) + "/" + str(self.save_method_for_user)
+        return
+    def addUserInfo(self, user_info):
+        for key, value in user_info.items():
+            if key in self.save_method:
+                self.save_method_for_user[self.save_method.index(key)] = value
+        print(self.save_method_for_user)
 
 class User:
     username: str
+    first_name: str
+    surname: str
     year: str
-    group: int
+    specialization: str
+    group: str
+    index: str
 
     def __init__(self,
                  username = None,
+                 first_name = None,
+                 surname = None,
                  year = None,
-                 group = None):
+                 specialization = None,
+                 group = None,
+                 index = None):
 
         self.username = username
-        self.year = year
-        self.group = group
+        self.user_info = {
+            "imie" : first_name,
+            "nazwisko" : surname,
+            "rok" : year,
+            "grupa" : group,
+            "specjalizacja" : specialization,
+            "indeks" : index
+        }
 
-    def getImapAttachments(self, connect_host, message_id_list, save_path):
+    def printUser(self):
+        user=f"{self.username}\n"
+        for key,value in self.user_info.items():
+            user+= f"{key}:{str(value)}\n"
+        print(user)
+        print("---------")
+
+    def getImapAttachments(self, connection: "Connection", message_id_list, save_path):
         for message in message_id_list:
-            status, message_data = connect_host.fetch(message,"(RFC822)")
+            status, message_data = connection.fetch(message,"(RFC822)")
             message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
             self.getAttachment(message_content,save_path)
             # for attachment in message_content.iter_attachments():
@@ -308,8 +354,9 @@ class User:
             print(f"Znaleziono: {filename}")
             self.saveAttachments(payload, filename, save_path)
 
-    def saveAttachments(self, payload,filename,save_path, root_path):
-        full_save_path = f"{save_path}/{self.username}"
+    def saveAttachments(self, payload,filename,save_path:FileSavePath):
+        save_path.addUserInfo(self.user_info)
+        full_save_path = save_path.full_save_path
         os.makedirs(full_save_path, exist_ok=True)
         try:
             if os.path.exists(os.path.join(full_save_path, filename)):
@@ -322,11 +369,44 @@ class User:
         except Exception as e:
             print(f"Błąd zapisu pliku. {e}")
 
+    # def getImapAttachments(self, connect_host, message_id_list, save_path):
+    #     for message in message_id_list:
+    #         status, message_data = connect_host.fetch(message,"(RFC822)")
+    #         message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
+    #         self.getAttachment(message_content,save_path)
+    #         # for attachment in message_content.iter_attachments():
+    #         #     filename = attachment.get_filename()
+    #         #     payload = attachment.get_payload(decode=True)
+    #         #     print(f"Znaleziono: {filename}")
+    #         #     self.saveAttachments(payload, filename, save_path)
+    #
+    # def getAttachment(self, message,file_save_path):
+    #
+    #     for attachment in message.iter_attachments():
+    #         filename = attachment.get_filename()
+    #         payload = attachment.get_payload(decode=True)
+    #         print(f"Znaleziono: {filename}")
+    #         self.saveAttachments(payload, filename, save_path)
+    #
+    # def saveAttachments(self, payload,filename,save_path, root_path):
+    #     full_save_path = f"{save_path}/{self.username}"
+    #     os.makedirs(full_save_path, exist_ok=True)
+    #     try:
+    #         if os.path.exists(os.path.join(full_save_path, filename)):
+    #             print(f"Plik {filename} użytkownika {self.username} już istnieje.")
+    #         else:
+    #             with open(f"{full_save_path}/{filename}","wb") as f:
+    #                 f.write(payload)
+    #         print(f"{full_save_path}")
+    #
+    #     except Exception as e:
+    #         print(f"Błąd zapisu pliku. {e}")
+
 class UserFile:
     def __init__(self):
         self.user_file_location = ""
         self.users_list = []
-        self.users_class_list = []
+        self.users_class_list: list[User] = []
 
     def setFromConfig(self, config:Config):
         self.user_file_location = config.user_file_location
@@ -361,39 +441,75 @@ class UserFile:
             users = users.dropna(axis=1,how="all")
 
             users = users.reset_index(drop=True)
-
             if "@" not in str(users.iloc[0]).lower():
                 users.columns = users.iloc[0]
                 users = users[1:].reset_index(drop=True)
 
             column_name = self.findEmailColumn(users)
+
             if column_name[0]:
                 column_name = column_name[1]
             else:
                 return False
 
-            self.users_list = users[column_name].unique().tolist()
+            duplicated_users = self.findDuplicates(users, column_name)
+            duplicated_users_list = ""
+            for key,value in duplicated_users.items():
+                duplicated_users_list += f"Wiersz: {str(key)}, Adres: {str(value)}\n"
+            showwarning("Ostrzeżenie",f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
+
+            self.users_list = list(users.to_dict("index").values())
             self.convertUsers()
             return True
 
         except Exception as e:
             print(e)
 
+    def findDuplicates(self,users,column_name):
+        users_list = users[column_name].tolist()
+        duplicates_list = users.duplicated(subset=column_name)
+        duplicated_users = {}
+        for i, status in enumerate(duplicates_list):
+            if status:
+                duplicated_users[i+1] = users_list[i]
+        return duplicated_users
+
     def convertUsers(self):
-        i = 0
+
+        # def __init__(self,
+        #              username=None,
+        #              first_name=None,
+        #              surname=None,
+        #              year=None,
+        #              specialization=None,
+        #              group=None,
+        #              index=None):
+
         for user in self.users_list:
-            user = str(user).strip()
-            if not self.validateUsername(user):
+            if not self.fixValues(user):
                 continue
-            self.users_class_list.append(User(user))
-            print(self.users_class_list[i].username)
-            i += 1
+            user_class = User(
+                user['Email'],
+                user['Imie'],
+                user['Nazwisko'],
+                user['Rok'],
+                user['Specjalizacja'],
+                user['Grupa'],
+                user['Indeks']
+            )
+            user_class.printUser()
+            self.users_class_list.append(user_class)
 
-    def validateUsername(self, username):
-        if username == "":
-            return False
+    def fixValues(self,user):
+        for key, value in user.items():
+            user[key] = str(value).strip()
+            try:
+                if value != value: user[key] = ""
+                if user["Email"] == "": return False
+                user[key] = int(float(value))
+            except Exception as e:
+                continue
         return True
-
     def findEmailColumn(self, data: pd.DataFrame):
         for column_name in data.columns:
             for item in data[column_name].head(1):
@@ -486,22 +602,23 @@ class MainWindow:
                  master,
                  app_state,
                  mail_details,
-                 mail_data,
+                 mailbox_details,
                  connection,
                  config,
                  user_file,
-                 date
+                 date,
+                 file_save_path
                  ):
 
         self.master = master
         self.connection:Connection = connection
         self.mail_details:MailDetails = mail_details
-        self.mail_data:MailData = mail_data
+        self.mailbox_details:MailboxDetails = mailbox_details
         self.app_state:AppState = app_state
         self.config:Config = config
         self.user_file:UserFile = user_file
         self.date:Date = date
-        self.file_save_location = ""
+        self.file_save_path:FileSavePath = file_save_path
         self.build()
         self.placeWidgets()
 
@@ -510,6 +627,7 @@ class MainWindow:
         self.load_config_button = ttk.Button(self.master, text="Wczytaj konfigurację", command=self.openLoadConfig)
         self.mail_connection_button = ttk.Button(self.master, text="Połącz z pocztą", command=self.openMailConnection)
         self.login_button = ttk.Button(self.master, text="Zaloguj do poczty", command=self.openLogin, state=tk.DISABLED)
+        self.mailbox_button = ttk.Button(self.master, text="Wybierz skrzynkę", command=self.openMailboxSelection, state=tk.DISABLED)
         self.user_file_button = ttk.Button(self.master, text="Wczytaj plik z użytkownikami", command=self.getUserFileLocation)
         self.file_save_location_button = ttk.Button(self.master, text="Wybierz lokalizację zapisu", command=self.getFileSaveLocation)
         self.set_date_button = ttk.Button(self.master, text="Wybierz zakres czasu", command=self.openDateSettings)
@@ -519,6 +637,7 @@ class MainWindow:
         self.config_label = ttk.Label(self.master, text="Konfiguracja: ")
         self.connection_label = ttk.Label(self.master, text="Poczta: ")
         self.login_label = ttk.Label(self.master, text="Użytkownik: ")
+        self.mailbox_label = ttk.Label(self.master, text="Skrzynka: ")
         self.user_file_label = ttk.Label(self.master, text="Plik z użytkownikami: ")
         self.file_save_label = ttk.Label(self.master, text="Lokalizacja zapisu: ")
         self.date_label = ttk.Label(self.master, text="Zakres czasu: ")
@@ -527,18 +646,20 @@ class MainWindow:
         self.config_text = ttk.Label(self.master)
         self.connection_text = ttk.Label(self.master)
         self.login_text = ttk.Label(self.master)
+        self.mailbox_text = ttk.Label(self.master)
         self.user_file_text = ttk.Label(self.master)
         self.file_save_text = ttk.Label(self.master)
         self.date_text = ttk.Label(self.master)
         self.save_path_text = ttk.Label(self.master)
 
     def placeWidgets(self):
-        self.master.geometry("380x340")
+        self.master.geometry("380x370")
 
         buttons = [
             self.load_config_button,
             self.mail_connection_button,
             self.login_button,
+            self.mailbox_button,
             self.user_file_button,
             self.file_save_location_button,
             self.set_date_button,
@@ -549,6 +670,7 @@ class MainWindow:
             self.config_label,
             self.connection_label,
             self.login_label,
+            self.mailbox_label,
             self.user_file_label,
             self.file_save_label,
             self.date_label,
@@ -559,6 +681,7 @@ class MainWindow:
             self.config_text,
             self.connection_text,
             self.login_text,
+            self.mailbox_text,
             self.user_file_text,
             self.file_save_text,
             self.date_text,
@@ -604,48 +727,16 @@ class MainWindow:
         except ValueError:
             return
 
-    def onConnectionSuccess(self, mail_details):
-        self.app_state.state["mail_connected"] = True
-        self.mail_details = mail_details
-        self.refreshUi()
-
     def openLogin(self):
         LoginWindow(self.master, self.connection, onLoginSuccess= self.onLoginSuccess)
 
-    def onLoginSuccess(self, connect_host):
-        self.app_state.state["logged_in"] = True
-        self.connection.connect_host = connect_host
+    def openMailboxSelection(self):
+        MailboxSelectionWindow(self.master, self.connection, self.mailbox_details,onMailboxSelectionSuccess = self.onMailboxSelectionSuccess)
+
+    def openSavePath(self):
+        SavePathWindow(self.master, self.file_save_path, self.onPathSetSuccess)
         self.refreshUi()
-
-    def  refreshUi(self):
-        if self.app_state.state["mail_connected"]:
-            self.login_button.config(state=tk.NORMAL)
-            self.mail_connection_button.config(state=tk.DISABLED)
-            self.connection_text.config(text=f"{self.mail_details.address} | {self.mail_details.port} | {self.mail_details.protocol}")
-            self.user_file_text.config(text = f"{self.user_file.user_file_location}")
-        else:
-            self.login_button.config(state=tk.DISABLED)
-
-        if self.app_state.state["logged_in"]:
-            self.login_button.config(state=tk.DISABLED)
-            self.login_text.config(text=self.connection.username)
-
-        if self.app_state.state["date_set"]:
-            date_text = ""
-            if len(self.date.date_list) == 1:
-                match self.date.date_range:
-                    case "from":
-                        date_text += "Od: "
-                    case "to":
-                        date_text += "Do: "
-                date_text += self.date.date_list[0]
-            else:
-                date_text = f"Od: {self.date.date_list[0]} \nDo: {self.date.date_list[1]}"
-            self.date_text.config(text=date_text)
-
-        if self.app_state.state["save_path_set"]:
-            self.save_path_text.config(text = self.mail_data.save_path)
-
+        return
 
     def getUserFileLocation(self):
         user_file_loc = askopenfilename(title="Wybierz plik Excel z użytkownikami",
@@ -659,12 +750,74 @@ class MainWindow:
         if save_loc == "":
             showwarning("Ostrzeżenie", "Nie wybrano lokalizacji do zapisu plików")
         else:
-            self.file_save_location = save_loc
+            self.file_save_path.save_location = save_loc
             self.file_save_text.config(text=f"{save_loc}/")
             self.app_state.state["save_loc_set"] = True
 
+    def refreshUi(self):
+        if self.app_state.state["mail_connected"]:
+            self.login_button.config(state=tk.NORMAL)
+            self.mail_connection_button.config(state=tk.DISABLED)
+
+            self.connection_text.config(text=f"{self.mail_details.address} | {self.mail_details.port} | {self.mail_details.protocol}")
+            self.user_file_text.config(text = f"{self.user_file.user_file_location}")
+        else:
+            self.login_button.config(state=tk.DISABLED)
+
+        if self.app_state.state["logged_in"]:
+            self.login_button.config(state=tk.DISABLED)
+            self.login_text.config(text=self.connection.username)
+            if self.connection.protocol == "IMAP":
+                self.mailbox_button.config(state=tk.NORMAL)
+            elif self.connection.protocol == "POP3":
+                self.mailbox_button.config(state=tk.DISABLED)
+                self.mailbox_text.config(text="INBOX")
+        else:
+            self.mailbox_button.config(state=tk.DISABLED)
+
+        if self.app_state.state["mailbox_set"]:
+            self.mailbox_text.config(text=f"{self.choosen_mailbox}")
+
+        if self.app_state.state["date_set"]:
+            date_text = ""
+            if len(self.date.date_list) == 1:
+                match self.date.date_range:
+                    case "from":
+                        date_text += "Od: "
+                    case "to":
+                        date_text += "Do: "
+                    case "one_day":
+                        date_text += "Z dnia: "
+                date_text += self.date.date_list[0]
+            else:
+                date_text = f"Od: {self.date.date_list[0]} \nDo: {self.date.date_list[1]}"
+            self.date_text.config(text=date_text)
+
+        if self.app_state.state["save_method_set"]:
+            self.save_path_text.config(text = str("".join(self.file_save_path.save_method)))
+
     def downloadAttachments(self):
-        return
+        # mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
+        # mail_data.getMessage()
+        # showinfo("Pobieranie...","Pobieranie wiadomości")
+        self.file_save_path.addUserInfo(self.user_file.users_class_list[0].user_info)
+
+    def onConnectionSuccess(self, mail_details):
+        self.app_state.state["mail_connected"] = True
+        self.mail_details = mail_details
+        self.refreshUi()
+
+    def onLoginSuccess(self, connect_host):
+        self.app_state.state["logged_in"] = True
+        self.connection.connect_host = connect_host
+        self.refreshUi()
+
+    def onMailboxSelectionSuccess(self, mailbox):
+        self.choosen_mailbox = mailbox
+        self.connection.connect_host.select(self.choosen_mailbox)
+        self.app_state.state["mailbox_set"] = True
+        print(self.choosen_mailbox)
+        self.refreshUi()
 
     def openDateSettings(self):
         DateWindow(self.master, self.date, onDateSetSuccess = self.onDateSetSuccess)
@@ -674,13 +827,8 @@ class MainWindow:
         self.refreshUi()
 
     def onPathSetSuccess(self):
-        self.app_state.state["save_path_set"] = True
+        self.app_state.state["save_method_set"] = True
         self.refreshUi()
-
-    def openSavePath(self):
-        SavePathWindow(self.master, self.mail_data, self.onPathSetSuccess)
-        self.refreshUi()
-        return
 
 # =========================
 # OKNO LOGOWANIA
@@ -798,6 +946,38 @@ class LoginWindow:
                 showerror("Błąd", "Nieprawidłowe dane logowania")
         self.login_status.set("")
         self.window.update_idletasks()
+
+class MailboxSelectionWindow:
+    def __init__(self, master, connection, mailbox_details, onMailboxSelectionSuccess):
+        self.window = tk.Toplevel(master)
+        self.window.title("Wybór skrzynki")
+        self.window.grab_set()
+        self.onMailboxSelectionSuccess = onMailboxSelectionSuccess
+        self.mailboxDetails = mailbox_details
+        self.mailboxes = ["",*self.mailboxDetails.getAllMailboxes(connection)]
+        self.build()
+        self.placeWidgets()
+
+    def build(self):
+        self.mailbox_choice = ttk.Combobox(self.window, values=self.mailboxes)
+        self.save_choice = ttk.Button(self.window,text="Zapisz", command=self.saveMailbox)
+
+    def placeWidgets(self):
+        self.window.geometry("200x180")
+
+        for i in range(3):
+            self.window.columnconfigure(i, weight=1)
+
+        self.mailbox_choice.grid(row=0, column=0, columnspan=3, pady=10)
+        self.save_choice.grid(row=1, column=0, columnspan=3, pady=5)
+
+    def saveMailbox(self):
+        choosen_mailbox = self.mailbox_choice.get()
+        if choosen_mailbox == "":
+            showwarning("Ostrzeżenie", "Nie wybrano skrzynki")
+        else:
+            self.onMailboxSelectionSuccess(choosen_mailbox)
+        self.window.destroy()
 
 class DateWindow:
     def __init__(self, master, date, onDateSetSuccess):
@@ -934,18 +1114,18 @@ class DateWindow:
             self.onDateSetSuccess()
 
 class SavePathWindow:
-    def __init__(self, master, mail_data, onPathSetSuccess):
+    def __init__(self, master, file_save_path, onPathSetSuccess):
         self.window = tk.Toplevel(master)
         self.window.title("Ścieżka zapisu")
 
         self.onPathSetSuccess = onPathSetSuccess
 
-        self.mail_data:MailData = mail_data
+        self.file_save_path:FileSavePath = file_save_path
 
-        self.types = ["Rok","Grupa","Imie","Nazwisko", "Indeks",""]
-        self.symbols = ["/", "_", ""]
+        self.types = ["","Imie","Nazwisko","Indeks","Rok","Grupa","Specjalizacja"]
+        self.symbols = ["","/", "_"]
 
-        self.path_var = tk.StringVar()
+        self.method_var = tk.StringVar()
 
         self.window.grab_set()
         self.build()
@@ -982,7 +1162,7 @@ class SavePathWindow:
             cb.bind("<<ComboboxSelected>>", self.cb_choosed)
 
         self.path_label = ttk.Label(self.window, text="Wybrana ścieżka:")
-        self.path_text = ttk.Label(self.window, textvariable=self.path_var)
+        self.path_text = ttk.Label(self.window, textvariable=self.method_var)
 
         self.save_button = ttk.Button(self.window, text="Zapisz", command=self.save, state = tk.DISABLED)
         self.check_button = ttk.Button(self.window, text="Sprawdź", command=self.check)
@@ -1012,17 +1192,16 @@ class SavePathWindow:
         if str(self.save_button['state']) != 'disabled':
             self.save_button.config(state=tk.DISABLED)
 
-        parts = []
+        self.parts = []
 
         for cb in self.cb_list:
             value = cb.get()
             if value:
-                print(value)
-                parts.append(value)
+                self.parts.append(value)
 
-        path = "".join(parts)
+        path = "".join(self.parts)
 
-        self.path_var.set(path)
+        self.method_var.set(path)
 
     def check(self):
         selected = [cb.get() for cb in self.path_list if cb.get()]
@@ -1034,10 +1213,9 @@ class SavePathWindow:
         return True
 
     def save(self):
-        self.mail_data.save_path = self.path_var.get()
+        self.file_save_path.save_method = self.parts
         self.window.destroy()
         self.onPathSetSuccess()
-        return
 
 # =========================
 # START
