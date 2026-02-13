@@ -119,6 +119,7 @@ class Connection:
         self.connect_host = None
         self.protocol = ""
         self.username = ""
+
     def connect(self, mail_details):
             try:
                 if mail_details.protocol == "IMAP":
@@ -225,10 +226,10 @@ class MailboxDetails:
 
 class MailData:
     def __init__(self,connection, user_file, date, file_save_path):
-        self.connection:Connection = connection.connect_host
+        self.connection:Connection = connection
         self.users_list = user_file.users_class_list
         self.date_choice = date.date_range
-        self.date_list = date.date_list
+        self.date_list = date.parseDate(date.date_list)
         self.query = []
         self.file_save_path:FileSavePath = file_save_path
 
@@ -246,42 +247,88 @@ class MailData:
             index += 1
         print(self.query)
 
-    # ---------------------------------------------------------
-    # Pobranie wiadomości i załączników od danego użytkownika
-    # z danego zakresu czasu
-    # ---------------------------------------------------------
-    # def downloadAttachment(self):
-    #     self.makeQuery()
-    #     for user in self.users_list:
-    #         status, data = self.connection.search(None,'From',f'"{user.username}"', *self.query)
-    #         print(data)
-    #         message_id_list = data[0].split()
-    #         user.getAttachments(self.connection, message_id_list, self.file_save_path)
-
-    def getMessage(self):
+    def getMessage(self,download):
         self.makeQuery()
         if self.connection.protocol=="IMAP":
-            self.getImapMessage()
+            self.getImapMessage(download)
         else:
-            self.getPopMessage()
+            username_dict = download.make_username_dict()
+            self.getPopMessage(download, username_dict)
 
-    def getImapMessage(self):
+    def getImapMessage(self,download):
         for user in self.users_list:
-            status, data = self.connection.search(None, 'FROM', f'"{user.username}"', *self.query)
-            mids = data[0].split()
-            user.getImapAttachments(self.connection, mids, self.save_path)
+            status, data = self.connection.connect_host.search(None, 'FROM', f'"{user.username}"', *self.query)
+            message_id_list = data[0].split()
+            download.getImapAttachments(self.connection.connect_host,
+                                        message_id_list,
+                                        user,
+                                        self.file_save_path)
 
-    def getPopMessage(self):
-        count,_ = self.connection.stat()
+    def getPopMessage(self,download,username_dict):
+        count,_ = self.connection.connect_host.stat()
         for i in range(count,0,-1):
-            resp = self.connection.retr(i)
+            resp = self.connection.connect_host.retr(i)
             joined = b"\r\n".join(resp[1])
             msg = BytesParser(policy=policy.default).parsebytes(joined)
-            user = self.checkUser(msg.get("From",""))
+            user = self.checkUser(msg.get("From",""),username_dict)
             if user:
-                user.getAttachment(msg, self.save_path)
+                download.getAttachment(msg, self.file_save_path, user)
 
+    def checkUser(self, mail_user,username_dict):
+        for username in username_dict.keys():
+            if username in mail_user:
+                user = username_dict[username]
+                return user
+        return None
 
+class Download:
+    def __init__(self, connection,mail_data, users_class_list):
+        self.connection:Connection = connection.connect_host
+        self.mail_data:MailData = mail_data
+        self.users_class_list: list[User] = users_class_list
+
+    def getMailData(self):
+        self.mail_data.getMessage(self)
+
+    def make_username_list(self):
+        return {user.username: user for user in self.users_class_list}
+
+    def getImapAttachments(self,
+                           connection,
+                           message_id_list,
+                           user:"User",
+                           save_path):
+        for message in message_id_list:
+            status, message_data = connection.fetch(message,"(RFC822)")
+            message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
+            self.getAttachment(message_content,save_path, user)
+            # for attachment in message_content.iter_attachments():
+            #     filename = attachment.get_filename()
+            #     payload = attachment.get_payload(decode=True)
+            #     print(f"Znaleziono: {filename}")
+            #     self.saveAttachments(payload, filename, save_path)
+
+    def getAttachment(self, message,save_path, user):
+        for attachment in message.iter_attachments():
+            filename = attachment.get_filename()
+            payload = attachment.get_payload(decode=True)
+            print(f"Znaleziono: {filename}")
+            self.saveAttachments(payload, filename, save_path, user)
+
+    def saveAttachments(self, payload,filename,file_save_path:"FileSavePath", user):
+        file_save_path.addUserInfo(user.user_info)
+        full_save_path = file_save_path.full_save_path
+        os.makedirs(full_save_path, exist_ok=True)
+        try:
+            if os.path.exists(os.path.join(full_save_path, filename)):
+                print(f"Plik {filename} użytkownika {user.username} już istnieje.")
+            else:
+                with open(f"{full_save_path}/{filename}","wb") as f:
+                    f.write(payload)
+            print(f"{full_save_path}")
+
+        except Exception as e:
+            print(f"Błąd zapisu pliku. {e}")
 
 
 class FileSavePath:
@@ -292,14 +339,21 @@ class FileSavePath:
         self.full_save_path = ""
 
     def makeSavePath(self):
+        joined_method = ""
+        for i in self.save_method_for_user:
+            joined_method += str(i)
+        self.full_save_path = self.save_location + "/" + joined_method + "/"
 
-        # self.full_save_path = str(self.save_location) + "/" + str(self.save_method_for_user)
-        return
+        print(self.full_save_path)
+
     def addUserInfo(self, user_info):
+
+        self.save_method_for_user = self.save_method
         for key, value in user_info.items():
             if key in self.save_method:
                 self.save_method_for_user[self.save_method.index(key)] = value
-        print(self.save_method_for_user)
+
+        self.makeSavePath()
 
 class User:
     username: str
@@ -321,54 +375,13 @@ class User:
 
         self.username = username
         self.user_info = {
-            "imie" : first_name,
-            "nazwisko" : surname,
-            "rok" : year,
-            "grupa" : group,
-            "specjalizacja" : specialization,
-            "indeks" : index
+            "Imie" : first_name,
+            "Nazwisko" : surname,
+            "Rok" : year,
+            "Grupa" : group,
+            "Specjalizacja" : specialization,
+            "Indeks" : index
         }
-
-    def printUser(self):
-        user=f"{self.username}\n"
-        for key,value in self.user_info.items():
-            user+= f"{key}:{str(value)}\n"
-        print(user)
-        print("---------")
-
-    def getImapAttachments(self, connection: "Connection", message_id_list, save_path):
-        for message in message_id_list:
-            status, message_data = connection.fetch(message,"(RFC822)")
-            message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
-            self.getAttachment(message_content,save_path)
-            # for attachment in message_content.iter_attachments():
-            #     filename = attachment.get_filename()
-            #     payload = attachment.get_payload(decode=True)
-            #     print(f"Znaleziono: {filename}")
-            #     self.saveAttachments(payload, filename, save_path)
-
-    def getAttachment(self, message,save_path):
-        for attachment in message.iter_attachments():
-            filename = attachment.get_filename()
-            payload = attachment.get_payload(decode=True)
-            print(f"Znaleziono: {filename}")
-            self.saveAttachments(payload, filename, save_path)
-
-    def saveAttachments(self, payload,filename,save_path:FileSavePath):
-        save_path.addUserInfo(self.user_info)
-        full_save_path = save_path.full_save_path
-        os.makedirs(full_save_path, exist_ok=True)
-        try:
-            if os.path.exists(os.path.join(full_save_path, filename)):
-                print(f"Plik {filename} użytkownika {self.username} już istnieje.")
-            else:
-                with open(f"{full_save_path}/{filename}","wb") as f:
-                    f.write(payload)
-            print(f"{full_save_path}")
-
-        except Exception as e:
-            print(f"Błąd zapisu pliku. {e}")
-
     # def getImapAttachments(self, connect_host, message_id_list, save_path):
     #     for message in message_id_list:
     #         status, message_data = connect_host.fetch(message,"(RFC822)")
@@ -456,9 +469,11 @@ class UserFile:
             duplicated_users_list = ""
             for key,value in duplicated_users.items():
                 duplicated_users_list += f"Wiersz: {str(key)}, Adres: {str(value)}\n"
-            showwarning("Ostrzeżenie",f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
+            if len(duplicated_users_list) != 0:
+                showwarning("Ostrzeżenie",f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
 
             self.users_list = list(users.to_dict("index").values())
+            print(self.users_list)
             self.convertUsers()
             return True
 
@@ -475,16 +490,6 @@ class UserFile:
         return duplicated_users
 
     def convertUsers(self):
-
-        # def __init__(self,
-        #              username=None,
-        #              first_name=None,
-        #              surname=None,
-        #              year=None,
-        #              specialization=None,
-        #              group=None,
-        #              index=None):
-
         for user in self.users_list:
             if not self.fixValues(user):
                 continue
@@ -497,7 +502,6 @@ class UserFile:
                 user['Grupa'],
                 user['Indeks']
             )
-            user_class.printUser()
             self.users_class_list.append(user_class)
 
     def fixValues(self,user):
@@ -507,9 +511,10 @@ class UserFile:
                 if value != value: user[key] = ""
                 if user["Email"] == "": return False
                 user[key] = int(float(value))
-            except Exception as e:
+            except Exception:
                 continue
         return True
+
     def findEmailColumn(self, data: pd.DataFrame):
         for column_name in data.columns:
             for item in data[column_name].head(1):
@@ -797,10 +802,10 @@ class MainWindow:
             self.save_path_text.config(text = str("".join(self.file_save_path.save_method)))
 
     def downloadAttachments(self):
-        # mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
-        # mail_data.getMessage()
-        # showinfo("Pobieranie...","Pobieranie wiadomości")
-        self.file_save_path.addUserInfo(self.user_file.users_class_list[0].user_info)
+        mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
+        download = Download(self.connection,mail_data,self.user_file.users_class_list)
+        download.getMailData()
+        showinfo("Pobieranie...","Pobieranie wiadomości")
 
     def onConnectionSuccess(self, mail_details):
         self.app_state.state["mail_connected"] = True
@@ -933,7 +938,7 @@ class LoginWindow:
         self.status_label.grid(row=4, column=0, columnspan=2, pady=5)
 
     def submit(self):
-        user_credentials = UserCredentials(username = self.username.get(),
+        user_credentials = UserCredentials(username = self.username.get().strip(),
                                            password = self.password.get())
         self.login_status.set("Logowanie...")
         self.window.update_idletasks()
