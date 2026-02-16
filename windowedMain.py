@@ -170,7 +170,7 @@ class Connection:
 
 class MailDetails:
     def __init__(self, address="", port=None, protocol=""):
-        self.address = address
+        self.address = address.lower()
         self.port = port
         self.protocol = protocol
 
@@ -239,20 +239,29 @@ class MailData:
     def makeQuery(self):
         quotes = ["ON","SINCE","BEFORE"]
         index = 0
-        for date in self.date_list:
-            if len(self.date_list) == 1:
-                self.query = [quotes[index], date.strftime("%d-%b-%Y")]
-                break
-            self.query += [quotes[index+1], date.strftime("%d-%b-%Y")]
-            index += 1
-        print(self.query)
+
+        match self.date_choice:
+            case "one_day":
+                self.query = [quotes[index], self.date_list[0].strftime("%d-%b-%Y")]
+
+            case "from_to":
+                self.date_list[1] = self.date_list[1] + dt.timedelta(days=1)
+                for date in self.date_list:
+                    self.query += [quotes[index+1], date.strftime("%d-%b-%Y")]
+                    index += 1
+            case "from":
+                self.query += [quotes[1], self.date_list[0].strftime("%d-%b-%Y")]
+
+            case "to":
+                self.date_list[0] = self.date_list[0] + dt.timedelta(days=1)
+                self.query += [quotes[2], self.date_list[0].strftime("%d-%b-%Y")]
 
     def getMessage(self,download):
-        self.makeQuery()
         if self.connection.protocol=="IMAP":
+            self.makeQuery()
             self.getImapMessage(download)
         else:
-            username_dict = download.make_username_dict()
+            username_dict = download.makeUsernameDict()
             self.getPopMessage(download, username_dict)
 
     def getImapMessage(self,download):
@@ -266,18 +275,38 @@ class MailData:
 
     def getPopMessage(self,download,username_dict):
         count,_ = self.connection.connect_host.stat()
+        date_filter = self.dateFilter()
         for i in range(count,0,-1):
             resp = self.connection.connect_host.retr(i)
             joined = b"\r\n".join(resp[1])
-            msg = BytesParser(policy=policy.default).parsebytes(joined)
-            user = self.checkUser(msg.get("From",""),username_dict)
-            if user:
-                download.getAttachment(msg, self.file_save_path, user)
+            message = BytesParser(policy=policy.default).parsebytes(joined)
+            try:
+                user = self.checkUser(message.get("From",""),username_dict)
+                if user:
+                    message_date = parsedate_to_datetime(message.get("Date")).date()
+                    if message_date <= self.date_list[0]:
+                        showinfo("Pobieranie", "Zakończono pobieranie plików")
+                        break
+                    if date_filter(message_date):
+                        download.getAttachment(message, self.file_save_path, user)
+            except Exception:
+                continue
+
+    def dateFilter(self):
+        match self.date_choice:
+            case "one_day":
+                return lambda message_date: message_date == self.date_list[0]
+            case "from_to":
+                return lambda message_date: self.date_list[0] <= message_date <= self.date_list[1]
+            case "from":
+                return lambda message_date: message_date >= self.date_list[0]
+            case "to":
+                return lambda message_date: message_date <= self.date_list[0]
 
     def checkUser(self, mail_user,username_dict):
         for username in username_dict.keys():
-            if username in mail_user:
-                user = username_dict[username]
+            if mail_user in username:
+                user = username_dict[mail_user]
                 return user
         return None
 
@@ -290,7 +319,7 @@ class Download:
     def getMailData(self):
         self.mail_data.getMessage(self)
 
-    def make_username_list(self):
+    def makeUsernameDict(self):
         return {user.username: user for user in self.users_class_list}
 
     def getImapAttachments(self,
@@ -316,6 +345,7 @@ class Download:
             self.saveAttachments(payload, filename, save_path, user)
 
     def saveAttachments(self, payload,filename,file_save_path:"FileSavePath", user):
+        print("Username in saveAttachments:",user.username)
         file_save_path.addUserInfo(user.user_info)
         full_save_path = file_save_path.full_save_path
         os.makedirs(full_save_path, exist_ok=True)
@@ -347,12 +377,10 @@ class FileSavePath:
         print(self.full_save_path)
 
     def addUserInfo(self, user_info):
-
-        self.save_method_for_user = self.save_method
+        self.save_method_for_user = self.save_method.copy()
         for key, value in user_info.items():
             if key in self.save_method:
                 self.save_method_for_user[self.save_method.index(key)] = value
-
         self.makeSavePath()
 
 class User:
@@ -428,7 +456,8 @@ class UserFile:
         if self.setUserFile(user_file_location):
             if self.convertData():
                 return True
-            showerror("Błąd", "W pliku nie znaleziono adresów email")
+            showerror("Błąd", "W pliku nie znaleziono adresów email \n"
+                              "lub \nadresy email nie są z domeny @stud.prz.edu.pl")
             return False
         else:
             return False
@@ -459,7 +488,6 @@ class UserFile:
                 users = users[1:].reset_index(drop=True)
 
             column_name = self.findEmailColumn(users)
-
             if column_name[0]:
                 column_name = column_name[1]
             else:
@@ -473,7 +501,6 @@ class UserFile:
                 showwarning("Ostrzeżenie",f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
 
             self.users_list = list(users.to_dict("index").values())
-            print(self.users_list)
             self.convertUsers()
             return True
 
@@ -518,8 +545,11 @@ class UserFile:
     def findEmailColumn(self, data: pd.DataFrame):
         for column_name in data.columns:
             for item in data[column_name].head(1):
-                if "@stud.prz.edu.pl" in item:
-                    return [True, column_name]
+                try:
+                    if "@stud.prz.edu.pl" in item:
+                        return [True, column_name]
+                except Exception:
+                    continue
         return [False]
 
 class Date:
@@ -577,7 +607,6 @@ class UserCredentials:
     def __init__(self, username = "", password = ""):
         self.username = username
         self.password = password
-
     def checkCredentials(self):
         if self.validateUsername(self.username) and self.validatePassword(self.password):
             print(self.username, self.password)
