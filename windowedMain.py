@@ -284,7 +284,7 @@ class MailData:
                 user = self.checkUser(message.get("From",""),username_dict)
                 if user:
                     message_date = parsedate_to_datetime(message.get("Date")).date()
-                    if message_date <= self.date_list[0]:
+                    if message_date < self.date_list[0]:
                         showinfo("Pobieranie", "Zakończono pobieranie plików")
                         break
                     if date_filter(message_date):
