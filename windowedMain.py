@@ -91,12 +91,10 @@ class Config:
             json.dump(config_params, file,indent=4)
             print(f"**  Konfiguracja zapisana  **\n"
                   f"{config_save_location}")
-
     def readConfigFile(self, config_file_location):
         with open(config_file_location) as file:
             conf = json.load(file)
         for key, value in conf.items():
-            print(key, ":", value)
             if hasattr(self,key): setattr(self,key,value)
 
     def loadConfig(self, mail_details,mailbox_details,file_save_path, connection):
@@ -183,7 +181,6 @@ class MailDetails:
 
     def checkDetails(self):
         if self.checkAddress(self.address) and self.checkPort(self.port):
-            print(self.address, self.port, self.protocol)
             return True
         return False
 
@@ -337,11 +334,6 @@ class Download:
             status, message_data = connection.fetch(message,"(RFC822)")
             message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
             self.getAttachment(message_content,save_path, user)
-            # for attachment in message_content.iter_attachments():
-            #     filename = attachment.get_filename()
-            #     payload = attachment.get_payload(decode=True)
-            #     print(f"Znaleziono: {filename}")
-            #     self.saveAttachments(payload, filename, save_path)
 
     def getAttachment(self, message,file_save_path:"FileSavePath", user):
         file_save_path.addUserInfo(user.user_info)
@@ -361,9 +353,7 @@ class Download:
             else:
                 with open(f"{file_path}","wb") as f:
                     f.write(payload)
-            print(f"{file_path}")
             if patoolib.is_archive(str(file_path)):
-                print(filename)
                 extract_dir = (full_save_path+
                             filename.split(".")[0]+
                             "_EXTRACTED_"+
@@ -388,8 +378,6 @@ class FileSavePath:
         for i in self.save_method_for_user:
             joined_method += str(i)
         self.full_save_path = self.save_location + "/" + joined_method + "/"
-
-        print(self.full_save_path)
 
     def addUserInfo(self, user_info):
         self.save_method_for_user = self.save_method.copy()
@@ -425,38 +413,6 @@ class User:
             "Specjalizacja" : specialization,
             "Indeks" : index
         }
-    # def getImapAttachments(self, connect_host, message_id_list, save_path):
-    #     for message in message_id_list:
-    #         status, message_data = connect_host.fetch(message,"(RFC822)")
-    #         message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
-    #         self.getAttachment(message_content,save_path)
-    #         # for attachment in message_content.iter_attachments():
-    #         #     filename = attachment.get_filename()
-    #         #     payload = attachment.get_payload(decode=True)
-    #         #     print(f"Znaleziono: {filename}")
-    #         #     self.saveAttachments(payload, filename, save_path)
-    #
-    # def getAttachment(self, message,file_save_path):
-    #
-    #     for attachment in message.iter_attachments():
-    #         filename = attachment.get_filename()
-    #         payload = attachment.get_payload(decode=True)
-    #         print(f"Znaleziono: {filename}")
-    #         self.saveAttachments(payload, filename, save_path)
-    #
-    # def saveAttachments(self, payload,filename,save_path, root_path):
-    #     full_save_path = f"{save_path}/{self.username}"
-    #     os.makedirs(full_save_path, exist_ok=True)
-    #     try:
-    #         if os.path.exists(os.path.join(full_save_path, filename)):
-    #             print(f"Plik {filename} użytkownika {self.username} już istnieje.")
-    #         else:
-    #             with open(f"{full_save_path}/{filename}","wb") as f:
-    #                 f.write(payload)
-    #         print(f"{full_save_path}")
-    #
-    #     except Exception as e:
-    #         print(f"Błąd zapisu pliku. {e}")
 
 class UserFile:
     def __init__(self):
@@ -600,6 +556,7 @@ class Date:
                     showwarning("Ostrzeżenie", "Daty są takie same")
 
                 return True
+
             case "one_day":
                 return True
 
@@ -624,7 +581,6 @@ class UserCredentials:
         self.password = password
     def checkCredentials(self):
         if self.validateUsername(self.username) and self.validatePassword(self.password):
-            print(self.username, self.password)
             return True
         return False
 
@@ -770,7 +726,6 @@ class MainWindow:
                     self.app_state.state["mail_connected"] = True
                     self.app_state.state["mailbox_set"] = True
                     self.app_state.state["save_method_set"] = True
-                    print("skrzynka: ",self.mailbox_details.chosen_mailbox)
                     self.refreshUi()
                     return True
                 else:
@@ -931,7 +886,6 @@ class MainWindow:
         self.mailbox_details.chosen_mailbox = mailbox
         self.connection.connect_host.select(mailbox)
         self.app_state.state["mailbox_set"] = True
-        print(mailbox)
         self.refreshUi()
 
     def openDateSettings(self):
@@ -1188,7 +1142,8 @@ class DateWindow:
 
     def updateDate(self, event = None):
         self.one_date_label.config(text=self.calendar_one_date.get_date())
-        print(datetime.datetime.strptime(self.calendar_one_date.get_date(), '%d-%m-%Y').date() == datetime.datetime.today().date())
+        # print(datetime.datetime.strptime(self.calendar_one_date.get_date(), '%d-%m-%Y').date() == datetime.datetime.today().date())
+
     def updateWindow(self):
         timestamp = self.timestamp.get()
         if timestamp != "from_to":
@@ -1255,13 +1210,20 @@ class SavePathWindow:
         self.path3 = ttk.Combobox(self.window, width=9, values=self.types)
         self.path4 = ttk.Combobox(self.window, width=9, values=self.types)
         self.path5 = ttk.Combobox(self.window, width=9, values=self.types)
+        self.path6 = ttk.Combobox(self.window, width=9, values=self.types)
 
-        self.path_list = [self.path1,self.path2,self.path3,self.path4,self.path5]
+        self.path_list = [self.path1,
+                          self.path2,
+                          self.path3,
+                          self.path4,
+                          self.path5,
+                          self.path6]
 
         self.symbol1 = ttk.Combobox(self.window, width=2, values=self.symbols)
         self.symbol2 = ttk.Combobox(self.window, width=2, values=self.symbols)
         self.symbol3 = ttk.Combobox(self.window, width=2, values=self.symbols)
         self.symbol4 = ttk.Combobox(self.window, width=2, values=self.symbols)
+        self.symbol5 = ttk.Combobox(self.window, width=2, values=self.symbols)
 
         self.cb_list = [self.path1,
                         self.symbol1,
@@ -1271,7 +1233,10 @@ class SavePathWindow:
                         self.symbol3,
                         self.path4,
                         self.symbol4,
-                        self.path5]
+                        self.path5,
+                        self.symbol5,
+                        self.path6,
+                        ]
 
         for cb in self.cb_list:
             cb.bind("<<ComboboxSelected>>", self.cb_choosed)
@@ -1283,19 +1248,21 @@ class SavePathWindow:
         self.check_button = ttk.Button(self.window, text="Sprawdź", command=self.check)
 
     def placeWidgets(self):
-        self.window.geometry("615x180")
+        self.window.geometry("750x180")
         self.info_label.grid(row=0, column=0, pady=5, padx=(5,0), columnspan=10, sticky="w")
 
         self.symbol1.grid(row=1, column=1, pady=5, padx=5)
         self.symbol2.grid(row=1, column=3, pady=5, padx=5)
         self.symbol3.grid(row=1, column=5, pady=5, padx=5)
         self.symbol4.grid(row=1, column=7, pady=5, padx=5)
+        self.symbol5.grid(row=1, column=9, pady=5, padx=5)
 
         self.path1.grid(row=1, column=0, pady=5, padx=5)
         self.path2.grid(row=1, column=2, pady=5, padx=5)
         self.path3.grid(row=1, column=4, pady=5, padx=5)
         self.path4.grid(row=1, column=6, pady=5, padx=5)
         self.path5.grid(row=1, column=8, pady=5, padx=5)
+        self.path6.grid(row=1, column=10, pady=5, padx=5)
 
         self.path_label.grid(row=2, column=0, pady=(10,0), padx=(5,0), columnspan=10, sticky="w")
         self.path_text.grid(row=3, column=0, pady=(0,10), padx=(5,0), columnspan=10, sticky="w")
