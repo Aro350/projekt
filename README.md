@@ -23,6 +23,7 @@ Projekt został zaprojektowany jako skrypt konsolowy w Pythonie z dodatkiem inte
 - pandas
 - openpyxl
 - tkcalendar
+- patool
 
 ### Instalacja wymaganych bibliotek:
 - pip install pandas openpyxl tkcalendar
