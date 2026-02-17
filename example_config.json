@@ -1,0 +1,11 @@
+{
+    "address": "stud.prz.edu.pl",
+    "protocol": "IMAP",
+    "port": 993,
+    "mailbox": "INBOX",
+    "save_method": [
+        "Imie",
+        "_",
+        "Nazwisko"
+    ]
+}
