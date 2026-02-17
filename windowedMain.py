@@ -1,5 +1,3 @@
-#TODO
-#Edytować makeQuery z MailData
 import datetime
 import imaplib
 import os
@@ -12,6 +10,8 @@ from email.parser import BytesParser
 
 import poplib
 from email.utils import parsedate_to_datetime
+
+import patoolib
 
 from poplib import error_proto
 from time import strptime
@@ -80,36 +80,30 @@ class AppState:
 class Config:
     def __init__(self):
         self.address = ""
-        self.port = 0
-        self.mailbox = ""
-        self.user_file_location = ""
         self.protocol = ""
-        self.save_template = ""
+        self.port = 0
+        self.chosen_mailbox = ""
+        self.save_method =[]
+        # self.user_file_location = ""
 
-    def saveParameters(self,
-                       mail_info: 'MailDetails',
-                       user_file:'UserFile',
-                       mailbox:'MailboxDetails'):
-
-        self.address = mail_info.address
-        self.port = mail_info.port
-        self.protocol = mail_info.protocol
-        if self.protocol == "IMAP":
-            self.mailbox = mailbox.mailbox_name
-        self.user_file_location = user_file.user_file_location
+    def saveParameters(self,config_params,config_save_location):
+        with open(config_save_location, 'w') as file:
+            json.dump(config_params, file,indent=4)
+            print(f"**  Konfiguracja zapisana  **\n"
+                  f"{config_save_location}")
 
     def readConfigFile(self, config_file_location):
         with open(config_file_location) as file:
             conf = json.load(file)
         for key, value in conf.items():
+            print(key, ":", value)
             if hasattr(self,key): setattr(self,key,value)
 
-    def setConfig(self, config_file_loc):
-        self.readConfigFile(config_file_loc)
+    def loadConfig(self, mail_details,mailbox_details,file_save_path, connection):
+        mail_details.setFromConfig(self.address,self.protocol,self.port)
+        mailbox_details.setFromConfig(self.chosen_mailbox)
+        file_save_path.setFromConfig(self.save_method)
 
-    def loadConfig(self, mail_details, connection, user_file):
-        mail_details.setFromConfig(self)
-        user_file.setFromConfig(self)
         if connection.connect(mail_details):
             return True
         return False
@@ -147,6 +141,19 @@ class Connection:
             except Exception as e:
                 showerror("Błąd", f"\n{e}")
                 exit()
+
+    def disconnect(self):
+        try:
+            if self.protocol == "IMAP" and self.connect_host:
+                self.connect_host.logout()
+            elif self.protocol == "POP3" and self.connect_host:
+                self.connect_host.quit()
+        except Exception:
+            pass
+        finally:
+            self.connect_host = None
+            self.protocol = ""
+            self.username = ""
 
     def auth(self, user_credentials):
         protocol = self.protocol
@@ -204,19 +211,18 @@ class MailDetails:
             self.port = int(port)
         return True
 
-    def setFromConfig(self, config:Config):
-        self.address = config.address
-        self.port = config.port
-        self.protocol = config.protocol
+    def setFromConfig(self, address,protocol,port):
+        self.address = address
+        self.protocol = protocol
+        self.port = port
 
 class MailboxDetails:
     def __init__(self):
         self.mailbox_list = []
-        self.choosen_mailbox = ""
+        self.chosen_mailbox = ""
 
-    # def getFromConfig(self,config:Config):
-    #     self.mailbox_name = config.mailbox
-    #     self.connection.connect_host.select(self.mailbox_name)
+    def setFromConfig(self,chosen_mailbox):
+        self.chosen_mailbox = chosen_mailbox
 
     def getAllMailboxes(self, connection):
         for i in (connection.connect_host.list()[1]):
@@ -337,29 +343,36 @@ class Download:
             #     print(f"Znaleziono: {filename}")
             #     self.saveAttachments(payload, filename, save_path)
 
-    def getAttachment(self, message,save_path, user):
+    def getAttachment(self, message,file_save_path:"FileSavePath", user):
+        file_save_path.addUserInfo(user.user_info)
+        full_save_path = file_save_path.full_save_path
+        os.makedirs(full_save_path, exist_ok=True)
         for attachment in message.iter_attachments():
             filename = attachment.get_filename()
             payload = attachment.get_payload(decode=True)
             print(f"Znaleziono: {filename}")
-            self.saveAttachments(payload, filename, save_path, user)
+            self.saveAttachments(payload, filename, full_save_path, user)
 
-    def saveAttachments(self, payload,filename,file_save_path:"FileSavePath", user):
-        print("Username in saveAttachments:",user.username)
-        file_save_path.addUserInfo(user.user_info)
-        full_save_path = file_save_path.full_save_path
-        os.makedirs(full_save_path, exist_ok=True)
+    def saveAttachments(self, payload,filename,full_save_path, user):
+        file_path = os.path.join(full_save_path,filename)
         try:
-            if os.path.exists(os.path.join(full_save_path, filename)):
+            if os.path.exists(file_path):
                 print(f"Plik {filename} użytkownika {user.username} już istnieje.")
             else:
-                with open(f"{full_save_path}/{filename}","wb") as f:
+                with open(f"{file_path}","wb") as f:
                     f.write(payload)
-            print(f"{full_save_path}")
-
+            print(f"{file_path}")
+            if patoolib.is_archive(str(file_path)):
+                print(filename)
+                extract_dir = (full_save_path+
+                            filename.split(".")[0]+
+                            "_EXTRACTED_"+
+                            str(datetime.datetime.today().strftime('%d_%m-%Y')))
+                os.makedirs(extract_dir,
+                            exist_ok=True)
+                patoolib.extract_archive(archive=str(file_path),outdir=extract_dir)
         except Exception as e:
             print(f"Błąd zapisu pliku. {e}")
-
 
 class FileSavePath:
     def __init__(self):
@@ -368,6 +381,8 @@ class FileSavePath:
         self.save_method_for_user = []
         self.full_save_path = ""
 
+    def setFromConfig(self, save_method):
+        self.save_method = save_method
     def makeSavePath(self):
         joined_method = ""
         for i in self.save_method_for_user:
@@ -449,8 +464,8 @@ class UserFile:
         self.users_list = []
         self.users_class_list: list[User] = []
 
-    def setFromConfig(self, config:Config):
-        self.user_file_location = config.user_file_location
+    # def setFromConfig(self, config:Config):
+    #     self.user_file_location = config.user_file_location
 
     def getUsers(self,user_file_location):
         if self.setUserFile(user_file_location):
@@ -659,14 +674,16 @@ class MainWindow:
     def build(self):
 
         self.load_config_button = ttk.Button(self.master, text="Wczytaj konfigurację", command=self.openLoadConfig)
-        self.mail_connection_button = ttk.Button(self.master, text="Połącz z pocztą", command=self.openMailConnection)
-        self.login_button = ttk.Button(self.master, text="Zaloguj do poczty", command=self.openLogin, state=tk.DISABLED)
+        self.mail_connection_button = ttk.Button(self.master, text="Połącz z pocztą", command=self.manageConnection)
+        self.login_button = ttk.Button(self.master, text="Zaloguj do poczty", command=self.manageLogin, state=tk.DISABLED)
         self.mailbox_button = ttk.Button(self.master, text="Wybierz skrzynkę", command=self.openMailboxSelection, state=tk.DISABLED)
         self.user_file_button = ttk.Button(self.master, text="Wczytaj plik z użytkownikami", command=self.getUserFileLocation)
         self.file_save_location_button = ttk.Button(self.master, text="Wybierz lokalizację zapisu", command=self.getFileSaveLocation)
         self.set_date_button = ttk.Button(self.master, text="Wybierz zakres czasu", command=self.openDateSettings)
         self.set_save_path_button = ttk.Button(self.master, text="Wybierz sposób zapisu", command=self.openSavePath)
-        self.download_button = ttk.Button(self.master, text="Pobierz załączniki", command=self.downloadAttachments)
+        self.download_button = ttk.Button(self.master, text="Pobierz załączniki", command=self.downloadAttachments, state=tk.DISABLED)
+        self.save_config_button = ttk.Button(self.master, text="Zapisz konfigurację", command=self.saveConfig, state=tk.DISABLED)
+
 
         self.config_label = ttk.Label(self.master, text="Konfiguracja: ")
         self.connection_label = ttk.Label(self.master, text="Poczta: ")
@@ -676,6 +693,7 @@ class MainWindow:
         self.file_save_label = ttk.Label(self.master, text="Lokalizacja zapisu: ")
         self.date_label = ttk.Label(self.master, text="Zakres czasu: ")
         self.save_path_label = ttk.Label(self.master, text="Sposób zapisu: ")
+        self.save_config_label = ttk.Label(self.master, text="Zapisany plik: ")
 
         self.config_text = ttk.Label(self.master)
         self.connection_text = ttk.Label(self.master)
@@ -685,9 +703,10 @@ class MainWindow:
         self.file_save_text = ttk.Label(self.master)
         self.date_text = ttk.Label(self.master)
         self.save_path_text = ttk.Label(self.master)
+        self.save_config_text = ttk.Label(self.master)
 
     def placeWidgets(self):
-        self.master.geometry("380x370")
+        self.master.geometry("380x410")
 
         buttons = [
             self.load_config_button,
@@ -698,6 +717,7 @@ class MainWindow:
             self.file_save_location_button,
             self.set_date_button,
             self.set_save_path_button,
+            self.save_config_button,
         ]
 
         labels = [
@@ -708,7 +728,8 @@ class MainWindow:
             self.user_file_label,
             self.file_save_label,
             self.date_label,
-            self.save_path_label
+            self.save_path_label,
+            self.save_config_label,
         ]
 
         texts = [
@@ -719,7 +740,8 @@ class MainWindow:
             self.user_file_text,
             self.file_save_text,
             self.date_text,
-            self.save_path_text
+            self.save_path_text,
+            self.save_config_text,
         ]
 
         for i, button in enumerate(buttons):
@@ -741,11 +763,14 @@ class MainWindow:
                                           filetypes=(("Json File", "*.json"),))
         try:
             if config_file_loc != "":
-                self.config.setConfig(config_file_loc)
-                if self.config.loadConfig(self.mail_details, self.connection, self.user_file):
+                self.config.readConfigFile(config_file_loc)
+                if self.config.loadConfig(self.mail_details, self.mailbox_details,self.file_save_path, self.connection):
                     showinfo("Połączenie",f"Połączono:\nAdres: {self.mail_details.address}\nPort: {self.mail_details.port}\nProtokół: {self.mail_details.protocol}")
                     self.config_text.config(text=config_file_loc)
                     self.app_state.state["mail_connected"] = True
+                    self.app_state.state["mailbox_set"] = True
+                    self.app_state.state["save_method_set"] = True
+                    print("skrzynka: ",self.mailbox_details.chosen_mailbox)
                     self.refreshUi()
                     return True
                 else:
@@ -755,11 +780,44 @@ class MainWindow:
         except Exception as e:
             print(e)
 
+    def manageConnection(self):
+        if self.app_state.state["mail_connected"]:
+            self.disconnectMail()
+        else:
+            self.openMailConnection()
+
+    def manageLogin(self):
+        if self.app_state.state["logged_in"]:
+            self.logoutMail()
+        else:
+            self.openLogin()
+
     def openMailConnection(self):
         try:
             MailConnectionWindow(self.master, self.connection, onConnectionSuccess=self.onConnectionSuccess)
         except ValueError:
             return
+
+    def disconnectMail(self, flag=0):
+        self.connection.disconnect()
+        self.app_state.state["mail_connected"] = False
+        self.app_state.state["logged_in"] = False
+        self.app_state.state["mailbox_set"] = False
+        self.login_text.config(text="")
+        self.mailbox_text.config(text="")
+        self.mailbox_details.mailbox_list = []
+        if flag==0:
+            self.connection_text.config(text="")
+            showinfo("Połączenie", "Rozłączono z pocztą")
+            self.refreshUi()
+
+    def logoutMail(self):
+        self.disconnectMail(flag=1)
+        self.connection.connect(self.mail_details)
+        self.app_state.state["mail_connected"] = True
+        self.connection.protocol = self.mail_details.protocol
+        showinfo("Połączenie", "Wylogowano z poczty")
+        self.refreshUi()
 
     def openLogin(self):
         LoginWindow(self.master, self.connection, onLoginSuccess= self.onLoginSuccess)
@@ -788,18 +846,41 @@ class MainWindow:
             self.file_save_text.config(text=f"{save_loc}/")
             self.app_state.state["save_loc_set"] = True
 
+    def downloadAttachments(self):
+        mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
+        download = Download(self.connection,mail_data,self.user_file.users_class_list)
+        download.getMailData()
+        showinfo("Pobieranie...","Pobieranie wiadomości")
+
+    def saveConfig(self):
+        config_save_location = asksaveasfilename(defaultextension=".json",
+                                                filetypes=(("Json File", "*.json"),))
+        if config_save_location!="":
+            mailbox = self.mailbox_details.chosen_mailbox if self.mail_details.protocol == "IMAP" else "INBOX"
+            config_params = {
+                "address":self.mail_details.address,
+                "protocol":self.mail_details.protocol,
+                "port":self.mail_details.port,
+                "chosen_mailbox": mailbox,
+                "save_method":self.file_save_path.save_method,
+            }
+            self.save_config_text.config(text=config_save_location)
+            self.config.saveParameters(config_params,config_save_location)
+        else:
+            showwarning("Ostrzeżenie", "Nie zapisano konfiguracji")
+
     def refreshUi(self):
         if self.app_state.state["mail_connected"]:
             self.login_button.config(state=tk.NORMAL)
-            self.mail_connection_button.config(state=tk.DISABLED)
-
+            self.mail_connection_button.config(text="Rozłącz z pocztą")
             self.connection_text.config(text=f"{self.mail_details.address} | {self.mail_details.port} | {self.mail_details.protocol}")
             self.user_file_text.config(text = f"{self.user_file.user_file_location}")
         else:
             self.login_button.config(state=tk.DISABLED)
+            self.mail_connection_button.config(text="Połącz z pocztą")
 
         if self.app_state.state["logged_in"]:
-            self.login_button.config(state=tk.DISABLED)
+            self.login_button.config(text="Wyloguj z poczty")
             self.login_text.config(text=self.connection.username)
             if self.connection.protocol == "IMAP":
                 self.mailbox_button.config(state=tk.NORMAL)
@@ -807,10 +888,11 @@ class MainWindow:
                 self.mailbox_button.config(state=tk.DISABLED)
                 self.mailbox_text.config(text="INBOX")
         else:
+            self.login_button.config(text="Zaloguj do poczty")
             self.mailbox_button.config(state=tk.DISABLED)
 
         if self.app_state.state["mailbox_set"]:
-            self.mailbox_text.config(text=f"{self.choosen_mailbox}")
+            self.mailbox_text.config(text=f"{self.mailbox_details.chosen_mailbox}")
 
         if self.app_state.state["date_set"]:
             date_text = ""
@@ -830,12 +912,9 @@ class MainWindow:
         if self.app_state.state["save_method_set"]:
             self.save_path_text.config(text = str("".join(self.file_save_path.save_method)))
 
-    def downloadAttachments(self):
-        mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
-        download = Download(self.connection,mail_data,self.user_file.users_class_list)
-        download.getMailData()
-        showinfo("Pobieranie...","Pobieranie wiadomości")
-
+        if self.app_state.checkAppStatus():
+            self.download_button.config(state=tk.NORMAL)
+            self.save_config_button.config(state=tk.NORMAL)
     def onConnectionSuccess(self, mail_details):
         self.app_state.state["mail_connected"] = True
         self.mail_details = mail_details
@@ -844,13 +923,15 @@ class MainWindow:
     def onLoginSuccess(self, connect_host):
         self.app_state.state["logged_in"] = True
         self.connection.connect_host = connect_host
+        if self.app_state.state["mailbox_set"]:
+            self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
         self.refreshUi()
 
     def onMailboxSelectionSuccess(self, mailbox):
-        self.choosen_mailbox = mailbox
-        self.connection.connect_host.select(self.choosen_mailbox)
+        self.mailbox_details.chosen_mailbox = mailbox
+        self.connection.connect_host.select(mailbox)
         self.app_state.state["mailbox_set"] = True
-        print(self.choosen_mailbox)
+        print(mailbox)
         self.refreshUi()
 
     def openDateSettings(self):
@@ -1006,11 +1087,11 @@ class MailboxSelectionWindow:
         self.save_choice.grid(row=1, column=0, columnspan=3, pady=5)
 
     def saveMailbox(self):
-        choosen_mailbox = self.mailbox_choice.get()
-        if choosen_mailbox == "":
+        chosen_mailbox = self.mailbox_choice.get()
+        if chosen_mailbox == "":
             showwarning("Ostrzeżenie", "Nie wybrano skrzynki")
         else:
-            self.onMailboxSelectionSuccess(choosen_mailbox)
+            self.onMailboxSelectionSuccess(chosen_mailbox)
         self.window.destroy()
 
 class DateWindow:
