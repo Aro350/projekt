@@ -91,10 +91,14 @@ class Config:
             json.dump(config_params, file,indent=4)
             print(f"**  Konfiguracja zapisana  **\n"
                   f"{config_save_location}")
+
     def readConfigFile(self, config_file_location):
         with open(config_file_location) as file:
             conf = json.load(file)
         for key, value in conf.items():
+            if key == "save_method":
+                for i,part in enumerate(value):
+                    value[i] = str(part).lower()
             if hasattr(self,key): setattr(self,key,value)
 
     def loadConfig(self, mail_details,mailbox_details,file_save_path, connection):
@@ -373,6 +377,7 @@ class FileSavePath:
 
     def setFromConfig(self, save_method):
         self.save_method = save_method
+
     def makeSavePath(self):
         joined_method = ""
         for i in self.save_method_for_user:
@@ -406,12 +411,12 @@ class User:
 
         self.username = username
         self.user_info = {
-            "Imie" : first_name,
-            "Nazwisko" : surname,
-            "Rok" : year,
-            "Grupa" : group,
-            "Specjalizacja" : specialization,
-            "Indeks" : index
+            "imie" : first_name,
+            "nazwisko" : surname,
+            "rok" : year,
+            "grupa" : group,
+            "specjalizacja" : specialization,
+            "indeks" : index
         }
 
 class UserFile:
@@ -463,7 +468,6 @@ class UserFile:
                 column_name = column_name[1]
             else:
                 return False
-
             duplicated_users = self.findDuplicates(users, column_name)
             duplicated_users_list = ""
             for key,value in duplicated_users.items():
@@ -471,6 +475,7 @@ class UserFile:
             if len(duplicated_users_list) != 0:
                 showwarning("Ostrzeżenie",f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
 
+            users.columns = users.columns.str.lower()
             self.users_list = list(users.to_dict("index").values())
             self.convertUsers()
             return True
@@ -488,17 +493,17 @@ class UserFile:
         return duplicated_users
 
     def convertUsers(self):
-        for user in self.users_list:
-            if not self.fixValues(user):
+        for user_from_file in self.users_list:
+            if not self.fixValues(user_from_file):
                 continue
             user_class = User(
-                user['Email'],
-                user['Imie'],
-                user['Nazwisko'],
-                user['Rok'],
-                user['Specjalizacja'],
-                user['Grupa'],
-                user['Indeks']
+                user_from_file['email'],
+                user_from_file['imie'],
+                user_from_file['nazwisko'],
+                user_from_file['rok'],
+                user_from_file['specjalizacja'],
+                user_from_file['grupa'],
+                user_from_file['indeks']
             )
             self.users_class_list.append(user_class)
 
@@ -507,7 +512,7 @@ class UserFile:
             user[key] = str(value).strip()
             try:
                 if value != value: user[key] = ""
-                if user["Email"] == "": return False
+                if user["email"] == "": return False
                 user[key] = int(float(value))
             except Exception:
                 continue
@@ -865,7 +870,10 @@ class MainWindow:
             self.date_text.config(text=date_text)
 
         if self.app_state.state["save_method_set"]:
-            self.save_path_text.config(text = str("".join(self.file_save_path.save_method)))
+            capitalized_path = []
+            for part in self.file_save_path.save_method:
+                capitalized_path.append(str(part).capitalize())
+            self.save_path_text.config(text = str("".join(capitalized_path)))
 
         if self.app_state.checkAppStatus():
             self.download_button.config(state=tk.NORMAL)
@@ -1275,15 +1283,17 @@ class SavePathWindow:
             self.save_button.config(state=tk.DISABLED)
 
         self.parts = []
-
+        ui_parts = []
         for cb in self.cb_list:
-            value = cb.get()
+            value = cb.get().lower()
+            ui_value = cb.get()
             if value:
                 self.parts.append(value)
+                ui_parts.append(ui_value)
 
-        path = "".join(self.parts)
-
-        self.method_var.set(path)
+        # path = "".join(self.parts)
+        ui_path = "".join(ui_parts)
+        self.method_var.set(ui_path)
 
     def check(self):
         selected = [cb.get() for cb in self.path_list if cb.get()]
@@ -1302,7 +1312,6 @@ class SavePathWindow:
 # =========================
 # START
 # =========================
-
 if __name__ == "__main__":
     app = App()
     app.run()
