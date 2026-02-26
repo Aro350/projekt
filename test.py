@@ -1220,7 +1220,6 @@ class SavePathWindow:
         self.info_label = ttk.Label(self.window,
                                     text="Wpisz ścieżkę ręcznie lub skorzystaj z listy pól (zostaną one wpisane w miejscu kursora)."
                                          "\nSłowa kluczowe zostaną automatycznie oznaczone w {}."
-                                         "\nŚcieżka nie powinna zawierać znaków specjalnych np. ą,ę, wszelkie takie znaki zostaną zamienione na zwykłe."
                                     )
 
         self.insert_combo = ttk.Combobox(self.insert_frame,
