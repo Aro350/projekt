@@ -2,7 +2,8 @@ import datetime
 import imaplib
 import os
 import socket
-import time
+
+import re
 
 from email.message import EmailMessage
 from email import policy
@@ -10,12 +11,11 @@ from email.parser import BytesParser
 
 import poplib
 from email.utils import parsedate_to_datetime
+from multiprocessing.spawn import import_main_path
 
 import patoolib
 
-from poplib import error_proto
-from time import strptime
-from tkinter.messagebox import askyesno, askyesnocancel, showwarning, showerror, showinfo
+from tkinter.messagebox import showwarning, showerror, showinfo
 
 import pandas as pd
 import json
@@ -23,6 +23,8 @@ import datetime as dt
 import tkinter as tk
 from tkinter import ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename, askdirectory
+
+from openpyxl.packaging.extended import VectorLpstr
 from tkcalendar import Calendar
 
 # =========================
@@ -83,22 +85,19 @@ class Config:
         self.protocol = ""
         self.port = 0
         self.chosen_mailbox = ""
-        self.save_method =[]
+        self.save_method = ""
         # self.user_file_location = ""
 
     def saveParameters(self,config_params,config_save_location):
         with open(config_save_location, 'w') as file:
             json.dump(config_params, file,indent=4)
-            print(f"**  Konfiguracja zapisana  **\n"
-                  f"{config_save_location}")
+            showinfo("Informacja",f"Konfiguracja zapisana w:\n"
+                                  f"{config_save_location}")
 
     def readConfigFile(self, config_file_location):
         with open(config_file_location) as file:
             conf = json.load(file)
         for key, value in conf.items():
-            if key == "save_method":
-                for i,part in enumerate(value):
-                    value[i] = str(part).lower()
             if hasattr(self,key): setattr(self,key,value)
 
     def loadConfig(self, mail_details,mailbox_details,file_save_path, connection):
@@ -159,23 +158,21 @@ class Connection:
 
     def auth(self, user_credentials):
         protocol = self.protocol
-        try:
-            if protocol == "IMAP":
-                self.connect_host.login(user_credentials.username, user_credentials.password)
-                self.username = user_credentials.username
-                return True
-            elif protocol == "POP3":
-                self.connect_host.user(user_credentials.username)
-                self.connect_host.pass_(user_credentials.password)
-                self.username = user_credentials.username
-                return True
-            return False
+        if protocol == "IMAP":
+            self.connect_host.login(user_credentials.username, user_credentials.password)
+            self.username = user_credentials.username
+            return True
+        elif protocol == "POP3":
+            self.connect_host.user(user_credentials.username)
+            self.connect_host.pass_(user_credentials.password)
+            self.username = user_credentials.username
+            return True
+        raise ValueError
         # except imaplib.IMAP4.error:
         #     return False
         # except error_proto:
         #     return False
-        except Exception as e:
-            showerror("Błąd",f"\n{e.__class__.__name__}")
+
 
 class MailDetails:
     def __init__(self, address="", port=None, protocol=""):
@@ -226,6 +223,8 @@ class MailboxDetails:
         self.chosen_mailbox = chosen_mailbox
 
     def getAllMailboxes(self, connection):
+        if len(self.mailbox_list) != 0:
+            self.mailbox_list = []
         for i in (connection.connect_host.list()[1]):
             if not b"doveco" in i:
                 self.mailbox_list.append(str(i).split(".")[1][2:-1])
@@ -371,24 +370,42 @@ class Download:
 class FileSavePath:
     def __init__(self):
         self.save_location = ""
-        self.save_method = []
-        self.save_method_for_user = []
+        self.save_method = ""
+        self.save_method_for_user = ""
         self.full_save_path = ""
+        self.example_save_text = ""
+        self.example_user = User("jankowalski@email.pl",
+                                 "Jan",
+                                 "Kowalski",
+                                 "2",
+                                 "EF-ZI",
+                                 "1",
+                                 "123456")
 
     def setFromConfig(self, save_method):
         self.save_method = save_method
+        self.example_save_text = save_method
+        for word in self.example_user.user_info.keys():
+            self.example_save_text = re.sub(
+                f"{{{word.capitalize()}}}",
+                self.example_user.user_info[word],
+                self.example_save_text,
+                flags=re.IGNORECASE
+            )
 
     def makeSavePath(self):
-        joined_method = ""
-        for i in self.save_method_for_user:
-            joined_method += str(i)
-        self.full_save_path = self.save_location + "/" + joined_method + "/"
+        self.full_save_path = self.save_location + "/" + self.save_method_for_user + "/"
 
     def addUserInfo(self, user_info):
-        self.save_method_for_user = self.save_method.copy()
-        for key, value in user_info.items():
-            if key in self.save_method:
-                self.save_method_for_user[self.save_method.index(key)] = value
+        self.save_method_for_user = self.save_method
+        for key in user_info.keys():
+            if key in self.save_method.lower():
+                self.save_method_for_user = re.sub(
+                    f"{{{key.capitalize()}}}",
+                    str(user_info[key]),
+                    self.save_method_for_user,
+                    flags=re.IGNORECASE
+                )
         self.makeSavePath()
 
 class User:
@@ -667,7 +684,7 @@ class MainWindow:
         self.save_config_text = ttk.Label(self.master)
 
     def placeWidgets(self):
-        self.master.geometry("380x410")
+        self.master.geometry("680x410")
 
         buttons = [
             self.load_config_button,
@@ -870,14 +887,12 @@ class MainWindow:
             self.date_text.config(text=date_text)
 
         if self.app_state.state["save_method_set"]:
-            capitalized_path = []
-            for part in self.file_save_path.save_method:
-                capitalized_path.append(str(part).capitalize())
-            self.save_path_text.config(text = str("".join(capitalized_path)))
+            self.save_path_text.config(text = str(f"{self.file_save_path.save_method}\n{self.file_save_path.example_save_text}"))
 
         if self.app_state.checkAppStatus():
             self.download_button.config(state=tk.NORMAL)
             self.save_config_button.config(state=tk.NORMAL)
+
     def onConnectionSuccess(self, mail_details):
         self.app_state.state["mail_connected"] = True
         self.mail_details = mail_details
@@ -1014,13 +1029,16 @@ class LoginWindow:
                                            password = self.password.get())
         self.login_status.set("Logowanie...")
         self.window.update_idletasks()
-        if user_credentials.checkCredentials():
-            if self.connection.auth(user_credentials):
-                self.window.destroy()
-                showinfo("Logowanie", f"Zalogowano:\nUżytkownik: {user_credentials.username}")
-                self.onLoginSuccess(self.connection.connect_host)
-            else:
-                showerror("Błąd", "Nieprawidłowe dane logowania")
+        try:
+            if user_credentials.checkCredentials():
+                    if self.connection.auth(user_credentials):
+                        self.window.destroy()
+                        showinfo("Logowanie", f"Zalogowano:\nUżytkownik: {user_credentials.username}")
+                        self.onLoginSuccess(self.connection.connect_host)
+        except imaplib.IMAP4.error:
+            showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później")
+        except Exception as e:
+            showerror("Błąd",f"{e.__class__.__name__}")
         self.login_status.set("")
         self.window.update_idletasks()
 
@@ -1196,116 +1214,139 @@ class SavePathWindow:
         self.window = tk.Toplevel(master)
         self.window.title("Ścieżka zapisu")
 
+        self.insert_frame = ttk.Frame(self.window)
+
         self.onPathSetSuccess = onPathSetSuccess
-
-        self.file_save_path:FileSavePath = file_save_path
-
-        self.types = ["","Imie","Nazwisko","Indeks","Rok","Grupa","Specjalizacja"]
-        self.symbols = ["","/", "_"]
-
-        self.method_var = tk.StringVar()
-
+        self.file_save_path = file_save_path
+        self.example_user:User = file_save_path.example_user
+        self.types = ["imie", "nazwisko", "indeks", "rok", "grupa", "specjalizacja"]
+        self.path_var = tk.StringVar()
+        self.insert_var = tk.StringVar()
         self.window.grab_set()
         self.build()
+        self.setDefault()
         self.placeWidgets()
 
     def build(self):
+        self.info_label = ttk.Label(self.window,
+                                    text="Wpisz ścieżkę ręcznie lub skorzystaj z listy pól (zostaną one wpisane w miejscu kursora)."
+                                         "\nSłowa kluczowe zostaną automatycznie oznaczone w {}."
+                                    )
 
-        self.info_label = ttk.Label(self.window, text="Informacja: Ustawienie symbolu '_' oznacza połączenie pól, natomiast '/' stworzenie podkatalogu")
+        self.insert_combo = ttk.Combobox(self.insert_frame,
+                                         textvariable=self.insert_var,
+                                         values=[word.capitalize() for word in self.types],
+                                         state="readonly",
+                                         width=15
+                                         )
 
-        self.path1 = ttk.Combobox(self.window, width=9, values=self.types)
-        self.path2 = ttk.Combobox(self.window, width=9, values=self.types)
-        self.path3 = ttk.Combobox(self.window, width=9, values=self.types)
-        self.path4 = ttk.Combobox(self.window, width=9, values=self.types)
-        self.path5 = ttk.Combobox(self.window, width=9, values=self.types)
-        self.path6 = ttk.Combobox(self.window, width=9, values=self.types)
+        self.insert_button = ttk.Button(self.insert_frame,
+                                        text="Wstaw pole",
+                                        command=self.insert_field
+                                        )
 
-        self.path_list = [self.path1,
-                          self.path2,
-                          self.path3,
-                          self.path4,
-                          self.path5,
-                          self.path6]
+        self.path_entry = ttk.Entry(self.window,
+                                    width=80,
+                                    textvariable=self.path_var)
 
-        self.symbol1 = ttk.Combobox(self.window, width=2, values=self.symbols)
-        self.symbol2 = ttk.Combobox(self.window, width=2, values=self.symbols)
-        self.symbol3 = ttk.Combobox(self.window, width=2, values=self.symbols)
-        self.symbol4 = ttk.Combobox(self.window, width=2, values=self.symbols)
-        self.symbol5 = ttk.Combobox(self.window, width=2, values=self.symbols)
+        self.path_entry.bind("<KeyRelease>", self.on_text_change)
 
-        self.cb_list = [self.path1,
-                        self.symbol1,
-                        self.path2,
-                        self.symbol2,
-                        self.path3,
-                        self.symbol3,
-                        self.path4,
-                        self.symbol4,
-                        self.path5,
-                        self.symbol5,
-                        self.path6,
-                        ]
+        self.preview_label = ttk.Label(self.window, text="Podgląd:")
+        self.preview_value = ttk.Label(self.window, text="", foreground="blue")
 
-        for cb in self.cb_list:
-            cb.bind("<<ComboboxSelected>>", self.cb_choosed)
+        self.example_label = ttk.Label(self.window, text="Przykładowy wygląd:")
+        self.example_preview = ttk.Label(self.window, text="", foreground="blue")
 
-        self.path_label = ttk.Label(self.window, text="Wybrana ścieżka:")
-        self.path_text = ttk.Label(self.window, textvariable=self.method_var)
-
-        self.save_button = ttk.Button(self.window, text="Zapisz", command=self.save, state = tk.DISABLED)
-        self.check_button = ttk.Button(self.window, text="Sprawdź", command=self.check)
+        self.save_button = ttk.Button(self.window,
+                                      text="Zapisz",
+                                      command=self.save
+                                      )
 
     def placeWidgets(self):
-        self.window.geometry("750x180")
-        self.info_label.grid(row=0, column=0, pady=5, padx=(5,0), columnspan=10, sticky="w")
+        self.window.geometry("750x270")
 
-        self.symbol1.grid(row=1, column=1, pady=5, padx=5)
-        self.symbol2.grid(row=1, column=3, pady=5, padx=5)
-        self.symbol3.grid(row=1, column=5, pady=5, padx=5)
-        self.symbol4.grid(row=1, column=7, pady=5, padx=5)
-        self.symbol5.grid(row=1, column=9, pady=5, padx=5)
+        self.info_label.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 5), sticky="w")
 
-        self.path1.grid(row=1, column=0, pady=5, padx=5)
-        self.path2.grid(row=1, column=2, pady=5, padx=5)
-        self.path3.grid(row=1, column=4, pady=5, padx=5)
-        self.path4.grid(row=1, column=6, pady=5, padx=5)
-        self.path5.grid(row=1, column=8, pady=5, padx=5)
-        self.path6.grid(row=1, column=10, pady=5, padx=5)
+        self.insert_frame.grid(row=1,column=0, columnspan=2, padx=5, sticky="w")
 
-        self.path_label.grid(row=2, column=0, pady=(10,0), padx=(5,0), columnspan=10, sticky="w")
-        self.path_text.grid(row=3, column=0, pady=(0,10), padx=(5,0), columnspan=10, sticky="w")
+        self.insert_combo.grid(row=0, column=0, padx=5,pady=5,)
+        self.insert_button.grid(row=0, column=1, padx=5,pady=5,)
 
-        self.check_button.grid(row=4, column=0, padx=(5,0), pady=5, sticky="w")
-        self.save_button.grid(row=4, column=1, columnspan=2, padx=5, pady=5, sticky="w")
+        self.path_entry.grid(row=2, column=0, columnspan=10, padx=10, pady=5, sticky="ew")
 
-    def cb_choosed(self, event = None):
-        if str(self.save_button['state']) != 'disabled':
-            self.save_button.config(state=tk.DISABLED)
+        self.preview_label.grid(row=3, column=0, padx=10, pady=(10, 0), sticky="w")
+        self.preview_value.grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 5), sticky="w")
 
-        self.parts = []
-        ui_parts = []
-        for cb in self.cb_list:
-            value = cb.get().lower()
-            ui_value = cb.get()
-            if value:
-                self.parts.append(value)
-                ui_parts.append(ui_value)
+        self.example_label.grid(row=5, column=0, padx=10, sticky="w")
+        self.example_preview.grid(row=6, column=0, columnspan=2, padx=10, pady=(0, 5), sticky="w")
 
-        # path = "".join(self.parts)
-        ui_path = "".join(ui_parts)
-        self.method_var.set(ui_path)
+        self.save_button.grid(row=7, column=0, padx=10, pady=5, sticky="w")
 
-    def check(self):
-        selected = [cb.get() for cb in self.path_list if cb.get()]
-        if len(selected) != len(set(selected)):
-            showerror("Błąd","Wybrane są takie same pola")
-            return False
+    def setDefault(self):
+        if self.file_save_path.save_method != "":
+            self.path_entry.delete(0, tk.END)
+            self.path_entry.insert(0, self.file_save_path.save_method)
+            self.on_text_change()
 
-        self.save_button.config(state=tk.NORMAL)
-        return True
+    def insert_field(self):
+        field = self.insert_var.get()
+
+        if not field:
+            return
+
+        cursor_position = self.path_entry.index(tk.INSERT)
+        self.path_entry.insert(cursor_position, f"{{{field}}}")
+        self.insert_combo.set("")
+        self.on_text_change()
+
+    def on_text_change(self, event=None):
+        try:
+            if len(event.keysym) > 1:
+                self.preview_value.config(text=self.path_entry.get())
+                self.update_example_preview(self.path_entry.get())
+                return
+        except AttributeError:
+            pass
+
+        text = self.path_entry.get()
+
+        if "imię" in text.lower():
+            text = re.sub("Imię", "Imie", text, flags=re.IGNORECASE)
+            self.path_entry.delete(0, tk.END)
+            self.path_entry.insert(0, text)
+
+        new_text = text
+        print(new_text)
+        for word in self.types:
+            if word in new_text.lower() and f"{{{word}}}" not in new_text.lower():
+                new_text = re.sub(word, f"{{{word.capitalize()}}}", new_text, flags=re.IGNORECASE)
+
+        for brackets in ["{{","}}"]:
+            if brackets in new_text:
+                new_text = new_text.replace(brackets,brackets[0])
+
+        if new_text != text:
+            self.path_entry.delete(0, tk.END)
+            self.path_entry.insert(0, new_text)
+
+        self.preview_value.config(text=new_text)
+        self.update_example_preview(new_text)
+
+    def update_example_preview(self, preview_text):
+        example_text = preview_text
+        for word in self.types:
+            example_text = re.sub(
+                f"{{{word.capitalize()}}}",
+                self.example_user.user_info[word],
+                example_text,
+                flags=re.IGNORECASE
+            )
+
+        self.example_preview.config(text=example_text)
 
     def save(self):
-        self.file_save_path.save_method = self.parts
+        self.file_save_path.save_method = self.path_var.get()
+        self.file_save_path.example_save_text = self.example_preview.cget("text")
         self.window.destroy()
         self.onPathSetSuccess()
 
