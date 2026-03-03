@@ -74,6 +74,7 @@ class AppState:
         }
 
     def checkAppStatus(self):
+        print(self.state)
         return all(self.state.values())
 
 # =========================
@@ -149,7 +150,8 @@ class Connection:
                 self.connect_host.logout()
             elif self.protocol == "POP3" and self.connect_host:
                 self.connect_host.quit()
-        except Exception:
+        except Exception as e:
+            print(e)
             pass
         finally:
             self.connect_host = None
@@ -291,7 +293,6 @@ class MailData:
                 if user:
                     message_date = parsedate_to_datetime(message.get("Date")).date()
                     if message_date < self.date_list[0] and self.date_choice != "to":
-                        showinfo("Pobieranie", "Zakończono pobieranie plików")
                         break
                     if date_filter(message_date):
                         download.getAttachment(message, self.file_save_path, user)
@@ -317,10 +318,11 @@ class MailData:
         return None
 
 class Download:
-    def __init__(self, connection,mail_data, users_class_list):
+    def __init__(self, connection,mail_data, users_class_list, filter):
         self.connection:Connection = connection.connect_host
         self.mail_data:MailData = mail_data
         self.users_class_list: list[User] = users_class_list
+        self.filter:Filter = filter
 
     def getMailData(self):
         self.mail_data.getMessage(self)
@@ -332,13 +334,16 @@ class Download:
                            connection,
                            message_id_list,
                            user:"User",
-                           save_path):
+                           file_save_path):
         for message in message_id_list:
             status, message_data = connection.fetch(message,"(RFC822)")
             message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
-            self.getAttachment(message_content,save_path, user)
+            self.getAttachment(message_content,file_save_path, user)
 
-    def getAttachment(self, message,file_save_path:"FileSavePath", user):
+    def getAttachment(self, message, file_save_path:"FileSavePath", user):
+        if (self.filter and len(self.filter.filter_list) != 0 and
+                not any([keyword.lower() in message["Subject"].lower() for keyword in self.filter.filter_list])):
+                return None
         file_save_path.addUserInfo(user.user_info)
         full_save_path = file_save_path.full_save_path
         os.makedirs(full_save_path, exist_ok=True)
@@ -360,7 +365,7 @@ class Download:
                 extract_dir = (full_save_path+
                             filename.split(".")[0]+
                             "_EXTRACTED_"+
-                            str(datetime.datetime.today().strftime('%d_%m-%Y')))
+                            str(datetime.datetime.today().strftime('%d-%m-%Y')))
                 os.makedirs(extract_dir,
                             exist_ok=True)
                 patoolib.extract_archive(archive=str(file_path),outdir=extract_dir)
@@ -374,6 +379,8 @@ class FileSavePath:
         self.save_method_for_user = ""
         self.full_save_path = ""
         self.example_save_text = ""
+        self.example_date = datetime.datetime.today().strftime('%d-%m-%Y')
+        self.example_time = datetime.datetime.now().time().strftime('%H:%M:%S')
         self.example_user = User("jankowalski@email.pl",
                                  "Jan",
                                  "Kowalski",
@@ -407,6 +414,22 @@ class FileSavePath:
                     flags=re.IGNORECASE
                 )
         self.makeSavePath()
+
+class Filter:
+    def __init__(self):
+        self.filter_text = ""
+        self.filter_list = []
+        self.check_mode = ""
+
+    def readFilter(self, filter_text):
+        self.filter_text = filter_text.strip()
+        self.filter_list = self.filter_text.split(",")
+
+    def checkFilter(self, subject):
+        for text in self.filter_list:
+            if text in subject:
+                return True
+        return False
 
 class User:
     username: str
@@ -646,6 +669,7 @@ class MainWindow:
         self.user_file:UserFile = user_file
         self.date:Date = date
         self.file_save_path:FileSavePath = file_save_path
+        self.filter = None
         self.build()
         self.placeWidgets()
 
@@ -659,6 +683,7 @@ class MainWindow:
         self.file_save_location_button = ttk.Button(self.master, text="Wybierz lokalizację zapisu", command=self.getFileSaveLocation)
         self.set_date_button = ttk.Button(self.master, text="Wybierz zakres czasu", command=self.openDateSettings)
         self.set_save_path_button = ttk.Button(self.master, text="Wybierz sposób zapisu", command=self.openSavePath)
+        self.filter_button = ttk.Button(self.master, text="Dodaj filtr", command=self.openFilter)
         self.download_button = ttk.Button(self.master, text="Pobierz załączniki", command=self.downloadAttachments, state=tk.DISABLED)
         self.save_config_button = ttk.Button(self.master, text="Zapisz konfigurację", command=self.saveConfig, state=tk.DISABLED)
 
@@ -671,6 +696,7 @@ class MainWindow:
         self.file_save_label = ttk.Label(self.master, text="Lokalizacja zapisu: ")
         self.date_label = ttk.Label(self.master, text="Zakres czasu: ")
         self.save_path_label = ttk.Label(self.master, text="Sposób zapisu: ")
+        self.filter_label = ttk.Label(self.master, text="Filtr: ")
         self.save_config_label = ttk.Label(self.master, text="Zapisany plik: ")
 
         self.config_text = ttk.Label(self.master)
@@ -681,10 +707,11 @@ class MainWindow:
         self.file_save_text = ttk.Label(self.master)
         self.date_text = ttk.Label(self.master)
         self.save_path_text = ttk.Label(self.master)
+        self.filter_text = ttk.Label(self.master)
         self.save_config_text = ttk.Label(self.master)
 
     def placeWidgets(self):
-        self.master.geometry("680x410")
+        self.master.geometry("680x450")
 
         buttons = [
             self.load_config_button,
@@ -695,6 +722,7 @@ class MainWindow:
             self.file_save_location_button,
             self.set_date_button,
             self.set_save_path_button,
+            self.filter_button,
             self.save_config_button,
         ]
 
@@ -707,6 +735,7 @@ class MainWindow:
             self.file_save_label,
             self.date_label,
             self.save_path_label,
+            self.filter_label,
             self.save_config_label,
         ]
 
@@ -719,6 +748,7 @@ class MainWindow:
             self.file_save_text,
             self.date_text,
             self.save_path_text,
+            self.filter_text,
             self.save_config_text,
         ]
 
@@ -786,7 +816,7 @@ class MainWindow:
         if flag==0:
             self.connection_text.config(text="")
             showinfo("Połączenie", "Rozłączono z pocztą")
-            self.refreshUi()
+        self.refreshUi()
 
     def logoutMail(self):
         self.disconnectMail(flag=1)
@@ -804,8 +834,7 @@ class MainWindow:
 
     def openSavePath(self):
         SavePathWindow(self.master, self.file_save_path, self.onPathSetSuccess)
-        self.refreshUi()
-        return
+        # self.refreshUi()
 
     def getUserFileLocation(self):
         user_file_loc = askopenfilename(title="Wybierz plik Excel z użytkownikami",
@@ -813,6 +842,7 @@ class MainWindow:
         if self.user_file.getUsers(user_file_loc):
             self.user_file_text.config(text=user_file_loc)
             self.app_state.state["user_file_set"] = True
+            self.refreshUi()
 
     def getFileSaveLocation(self):
         save_loc = askdirectory(title="Wybierz folder do zapisu załączników")
@@ -822,12 +852,33 @@ class MainWindow:
             self.file_save_path.save_location = save_loc
             self.file_save_text.config(text=f"{save_loc}/")
             self.app_state.state["save_loc_set"] = True
+            self.refreshUi()
+
+    def openFilter(self):
+        if not self.filter:
+            self.filter = Filter()
+        FilterWindow(self.master, self.filter, self.onFilterSet)
 
     def downloadAttachments(self):
+
+        loading_window = tk.Toplevel(self.master)
+        loading_window.title("Pobieranie")
+        loading_window.geometry("300x100")
+        loading_window.transient(self.master)
+        loading_window.grab_set()
+
+        ttk.Label(
+            loading_window,
+            text="Pobieranie wiadomości...\nProszę czekać."
+        ).pack(expand=True, pady=20)
+        loading_window.update()
+
         mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
-        download = Download(self.connection,mail_data,self.user_file.users_class_list)
+        download = Download(self.connection,mail_data,self.user_file.users_class_list, self.filter)
         download.getMailData()
-        showinfo("Pobieranie...","Pobieranie wiadomości")
+
+        loading_window.destroy()
+        showinfo("Gotowe", "Pobieranie zakończone")
 
     def saveConfig(self):
         config_save_location = asksaveasfilename(defaultextension=".json",
@@ -870,6 +921,8 @@ class MainWindow:
 
         if self.app_state.state["mailbox_set"]:
             self.mailbox_text.config(text=f"{self.mailbox_details.chosen_mailbox}")
+        else:
+            self.mailbox_text.config(text="")
 
         if self.app_state.state["date_set"]:
             date_text = ""
@@ -892,20 +945,31 @@ class MainWindow:
         if self.app_state.checkAppStatus():
             self.download_button.config(state=tk.NORMAL)
             self.save_config_button.config(state=tk.NORMAL)
+        else:
+            self.download_button.config(state=tk.DISABLED)
+            self.save_config_button.config(state=tk.DISABLED)
+
 
     def onConnectionSuccess(self, mail_details):
         self.app_state.state["mail_connected"] = True
         self.mail_details = mail_details
+        if self.mail_details.protocol == "POP3":
+            self.mailbox_text.config(text="INBOX")
+            self.app_state.state["mailbox_set"] = True
         self.refreshUi()
 
     def onLoginSuccess(self, connect_host):
         self.app_state.state["logged_in"] = True
         self.connection.connect_host = connect_host
-        if self.app_state.state["mailbox_set"]:
+        if self.app_state.state["mailbox_set"] and self.mail_details.protocol=="IMAP":
             self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
         self.refreshUi()
 
     def onMailboxSelectionSuccess(self, mailbox):
+        if mailbox == "":
+            self.app_state.state["mailbox_set"] = False
+            self.refreshUi()
+            return None
         self.mailbox_details.chosen_mailbox = mailbox
         self.connection.connect_host.select(mailbox)
         self.app_state.state["mailbox_set"] = True
@@ -921,6 +985,9 @@ class MainWindow:
     def onPathSetSuccess(self):
         self.app_state.state["save_method_set"] = True
         self.refreshUi()
+
+    def onFilterSet(self):
+        self.filter_text.config(text=self.filter.filter_text)
 
 # =========================
 # OKNO LOGOWANIA
@@ -1035,10 +1102,12 @@ class LoginWindow:
                         self.window.destroy()
                         showinfo("Logowanie", f"Zalogowano:\nUżytkownik: {user_credentials.username}")
                         self.onLoginSuccess(self.connection.connect_host)
-        except imaplib.IMAP4.error:
+        except (imaplib.IMAP4.error, poplib.error_proto):
             showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później")
+        except ValueError:
+            showerror("Błąd logowania", "Błędny protokół")
         except Exception as e:
-            showerror("Błąd",f"{e.__class__.__name__}")
+            showerror("Błąd",f"{type(e)}")
         self.login_status.set("")
         self.window.update_idletasks()
 
@@ -1058,7 +1127,7 @@ class MailboxSelectionWindow:
         self.save_choice = ttk.Button(self.window,text="Zapisz", command=self.saveMailbox)
 
     def placeWidgets(self):
-        self.window.geometry("200x180")
+        self.window.geometry("170x160")
 
         for i in range(3):
             self.window.columnconfigure(i, weight=1)
@@ -1070,6 +1139,7 @@ class MailboxSelectionWindow:
         chosen_mailbox = self.mailbox_choice.get()
         if chosen_mailbox == "":
             showwarning("Ostrzeżenie", "Nie wybrano skrzynki")
+            self.onMailboxSelectionSuccess(chosen_mailbox)
         else:
             self.onMailboxSelectionSuccess(chosen_mailbox)
         self.window.destroy()
@@ -1217,9 +1287,18 @@ class SavePathWindow:
         self.insert_frame = ttk.Frame(self.window)
 
         self.onPathSetSuccess = onPathSetSuccess
-        self.file_save_path = file_save_path
+        self.file_save_path:FileSavePath = file_save_path
         self.example_user:User = file_save_path.example_user
-        self.types = ["imie", "nazwisko", "indeks", "rok", "grupa", "specjalizacja"]
+        self.example_datetime = {"data": file_save_path.example_date,
+                                 "czas": file_save_path.example_time}
+        self.types = ["imie",
+                      "nazwisko",
+                      "indeks",
+                      "rok",
+                      "grupa",
+                      "specjalizacja",
+                      "data",
+                      "czas"]
         self.path_var = tk.StringVar()
         self.insert_var = tk.StringVar()
         self.window.grab_set()
@@ -1316,7 +1395,6 @@ class SavePathWindow:
             self.path_entry.insert(0, text)
 
         new_text = text
-        print(new_text)
         for word in self.types:
             if word in new_text.lower() and f"{{{word}}}" not in new_text.lower():
                 new_text = re.sub(word, f"{{{word.capitalize()}}}", new_text, flags=re.IGNORECASE)
@@ -1335,12 +1413,15 @@ class SavePathWindow:
     def update_example_preview(self, preview_text):
         example_text = preview_text
         for word in self.types:
-            example_text = re.sub(
-                f"{{{word.capitalize()}}}",
-                self.example_user.user_info[word],
-                example_text,
-                flags=re.IGNORECASE
-            )
+            if word.lower() in preview_text.lower():
+                example_text = re.sub(
+                    f"{{{word.capitalize()}}}",
+                    (self.example_user.user_info[word]
+                     if word in self.example_user.user_info.keys()
+                     else self.example_datetime[word]),
+                    example_text,
+                    flags=re.IGNORECASE
+                )
 
         self.example_preview.config(text=example_text)
 
@@ -1349,6 +1430,50 @@ class SavePathWindow:
         self.file_save_path.example_save_text = self.example_preview.cget("text")
         self.window.destroy()
         self.onPathSetSuccess()
+
+
+class FilterWindow:
+    def __init__(self, master, filter, onFilterSet):
+        self.window = tk.Toplevel(master)
+        self.window.title("Filtrowanie")
+        self.insert_frame = ttk.Frame(self.window)
+        self.filter_var = tk.StringVar()
+        self.onFilterSet = onFilterSet
+        self.filter:Filter = filter
+        self.window.grab_set()
+        self.build()
+        self.setDefault()
+        self.placeWidgets()
+
+    def build(self):
+        self.info_label = ttk.Label(self.window,
+                                    text="Wpisz co ma zawierać temat wiadomości, słowa kluczowe lub tekst oddziel przecinkiem." )
+
+        self.filter_entry = ttk.Entry(self.window,
+                                    width=70,
+                                    textvariable=self.filter_var)
+
+        self.save_button = ttk.Button(self.window,
+                                      text="Zapisz",
+                                      command=self.save
+                                      )
+
+    def placeWidgets(self):
+        self.window.geometry("500x150")
+
+        self.info_label.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 5), sticky="w")
+        self.filter_entry.grid(row=1,column=0, columnspan=2, padx=10, sticky="w")
+        self.save_button.grid(row=2, column=0, padx=10, pady=5, sticky="w")
+
+    def setDefault(self):
+        if self.filter.filter_text != "":
+            self.filter_entry.delete(0, tk.END)
+            self.filter_entry.insert(0, self.filter.filter_text)
+
+    def save(self):
+        self.filter.readFilter(self.filter_entry.get())
+        self.window.destroy()
+        self.onFilterSet()
 
 # =========================
 # START
