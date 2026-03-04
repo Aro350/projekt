@@ -281,23 +281,85 @@ class MailData:
                                         user,
                                         self.file_save_path)
 
-    def getPopMessage(self,download,username_dict):
-        count,_ = self.connection.connect_host.stat()
+    def getPopMessage(self, download, username_dict):
+        conn = self.connection.connect_host
+        count, _ = conn.stat()
         date_filter = self.dateFilter()
-        for i in range(count,0,-1):
-            resp = self.connection.connect_host.retr(i)
-            joined = b"\r\n".join(resp[1])
-            message = BytesParser(policy=policy.default).parsebytes(joined)
+
+        try:
+            caps = conn.capa()
+            supports_top = b"TOP" in caps
+        except Exception:
+            supports_top = False
+
+        for i in range(count, 0, -1):
+
             try:
-                user = self.checkUser(message.get("From",""),username_dict)
-                if user:
-                    message_date = parsedate_to_datetime(message.get("Date")).date()
-                    if message_date < self.date_list[0] and self.date_choice != "to":
-                        break
-                    if date_filter(message_date):
-                        download.getAttachment(message, self.file_save_path, user)
-            except Exception:
+                if supports_top:
+                    try:
+                        resp = conn.top(i, 0)
+                    except poplib.error_proto:
+                        supports_top = False
+                        resp = conn.retr(i)
+                else:
+                    resp = conn.retr(i)
+
+                joined = b"\r\n".join(resp[1])
+                message = BytesParser(policy=policy.default).parsebytes(joined)
+
+                date_header = message.get("Date")
+                if not date_header:
+                    continue
+
+                message_date = parsedate_to_datetime(date_header).date()
+
+                if message_date < self.date_list[0] and self.date_choice != "to":
+                    break
+
+                if not date_filter(message_date):
+                    continue
+
+                user = self.checkUser(message.get("From", ""), username_dict)
+                if not user:
+                    continue
+
+                if supports_top:
+                    full_resp = conn.retr(i)
+                    full_joined = b"\r\n".join(full_resp[1])
+                    full_message = BytesParser(policy=policy.default).parsebytes(full_joined)
+                else:
+                    full_message = message
+
+                parsed_date = parsedate_to_datetime(date_header)
+                message_datetime = {"data": parsed_date.date(),
+                                    "czas": parsed_date.time()}
+
+                download.getAttachment(full_message, self.file_save_path, user, message_datetime)
+
+            except Exception as e:
+                print(f"Błąd przy wiadomości {i}: {e}")
                 continue
+
+    # def getPopMessage(self,download,username_dict):
+    #     count,_ = self.connection.connect_host.stat()
+    #     date_filter = self.dateFilter()
+    #     for i in range(count,0,-1):
+    #         resp = self.connection.connect_host.retr(i)
+    #         joined = b"\r\n".join(resp[1])
+    #         message = BytesParser(policy=policy.default).parsebytes(joined)
+    #         try:
+    #             message_date = parsedate_to_datetime(message.get("Date")).date()
+    #             if message_date < self.date_list[0] and self.date_choice != "to":
+    #                 continue
+    #             if date_filter(message_date):
+    #                 user = self.checkUser(message.get("From",""),username_dict)
+    #                 if user:
+    #                     print(user.user_info)
+    #                     download.getAttachment(message, self.file_save_path, user)
+    #         except Exception as e:
+    #             print(e)
+    #             print(e.__class__.__name__)
+    #             continue
 
     def dateFilter(self):
         match self.date_choice:
@@ -312,17 +374,22 @@ class MailData:
 
     def checkUser(self, mail_user,username_dict):
         for username in username_dict.keys():
-            if mail_user in username:
-                user = username_dict[mail_user]
+            print("Username", username)
+            print("MailUser", mail_user)
+            if username in mail_user:
+                print(mail_user)
+                print("----------")
+                print(username)
+                user = username_dict[username]
                 return user
         return None
 
 class Download:
-    def __init__(self, connection,mail_data, users_class_list, filter):
+    def __init__(self, connection,mail_data, users_class_list, subject_filter):
         self.connection:Connection = connection.connect_host
         self.mail_data:MailData = mail_data
         self.users_class_list: list[User] = users_class_list
-        self.filter:Filter = filter
+        self.subject_filter:Filter = subject_filter
 
     def getMailData(self):
         self.mail_data.getMessage(self)
@@ -335,16 +402,26 @@ class Download:
                            message_id_list,
                            user:"User",
                            file_save_path):
+
         for message in message_id_list:
             status, message_data = connection.fetch(message,"(RFC822)")
             message_content: EmailMessage = BytesParser(policy=policy.default).parsebytes(message_data[0][1])
             self.getAttachment(message_content,file_save_path, user)
 
-    def getAttachment(self, message, file_save_path:"FileSavePath", user):
-        if (self.filter and len(self.filter.filter_list) != 0 and
-                not any([keyword.lower() in message["Subject"].lower() for keyword in self.filter.filter_list])):
+    def getAttachment(self, message, file_save_path:"FileSavePath", user, message_datetime = None):
+        if (self.subject_filter and len(self.subject_filter.filter_list) != 0 and
+                not any([keyword.lower() in message.get("Subject","").lower() for keyword in self.subject_filter.filter_list])):
                 return None
-        file_save_path.addUserInfo(user.user_info)
+
+        attachments = list(message.iter_attachments())
+        if not attachments:
+            return None
+
+        if not message_datetime:
+            parsed_date = parsedate_to_datetime(message.get("Date"))
+            message_datetime = {"data": parsed_date.date(), "czas": parsed_date.time()}
+
+        file_save_path.addUserInfo(user.user_info, message_datetime)
         full_save_path = file_save_path.full_save_path
         os.makedirs(full_save_path, exist_ok=True)
         for attachment in message.iter_attachments():
@@ -378,9 +455,25 @@ class FileSavePath:
         self.save_method = ""
         self.save_method_for_user = ""
         self.full_save_path = ""
+
+        self.types = ["imie",
+                      "nazwisko",
+                      "indeks",
+                      "rok",
+                      "grupa",
+                      "specjalizacja",
+                      "data",
+                      "czas"]
+
+        self.symbols = ["/",
+                        "_",
+                        "spacja",
+                        "-"]
+
         self.example_save_text = ""
-        self.example_date = datetime.datetime.today().strftime('%d-%m-%Y')
-        self.example_time = datetime.datetime.now().time().strftime('%H:%M:%S')
+        self.example_datetime = {"data": datetime.datetime.today(),
+                                 "czas": datetime.datetime.now().time()}
+
         self.example_user = User("jankowalski@email.pl",
                                  "Jan",
                                  "Kowalski",
@@ -391,28 +484,33 @@ class FileSavePath:
 
     def setFromConfig(self, save_method):
         self.save_method = save_method
-        self.example_save_text = save_method
-        for word in self.example_user.user_info.keys():
-            self.example_save_text = re.sub(
-                f"{{{word.capitalize()}}}",
-                self.example_user.user_info[word],
-                self.example_save_text,
-                flags=re.IGNORECASE
-            )
+        self.example_save_text = self.replaceText(save_method,
+                                                  self.example_user.user_info,
+                                                  self.example_datetime)
+    def replaceText(self,raw_text, message_user_info, message_datetime):
+        replaced_text = raw_text
+        if any(time_word.lower() in raw_text.lower() for time_word in message_datetime.keys()):
+            message_datetime["data"] = message_datetime["data"].strftime('%d-%m-%Y') if type(message_datetime["data"]) != str else message_datetime["data"]
+            message_datetime["czas"] = message_datetime["czas"].strftime('%H-%M-%S') if type(message_datetime["czas"]) != str else message_datetime["czas"]
+        for word in self.types:
+            if word.lower() in raw_text.lower():
+                replaced_text = re.sub(
+                    f"{{{word.capitalize()}}}",
+                    (message_user_info[word]
+                     if word in message_user_info.keys()
+                     else message_datetime[word]),
+                    replaced_text,
+                    flags=re.IGNORECASE
+                )
+        return replaced_text
 
     def makeSavePath(self):
         self.full_save_path = self.save_location + "/" + self.save_method_for_user + "/"
 
-    def addUserInfo(self, user_info):
-        self.save_method_for_user = self.save_method
-        for key in user_info.keys():
-            if key in self.save_method.lower():
-                self.save_method_for_user = re.sub(
-                    f"{{{key.capitalize()}}}",
-                    str(user_info[key]),
-                    self.save_method_for_user,
-                    flags=re.IGNORECASE
-                )
+    def addUserInfo(self, user_info, message_datetime):
+        self.save_method_for_user = self.replaceText(self.save_method,
+                                                     user_info,
+                                                     message_datetime)
         self.makeSavePath()
 
 class Filter:
@@ -669,7 +767,7 @@ class MainWindow:
         self.user_file:UserFile = user_file
         self.date:Date = date
         self.file_save_path:FileSavePath = file_save_path
-        self.filter = None
+        self.subject_filter = None
         self.build()
         self.placeWidgets()
 
@@ -772,6 +870,8 @@ class MainWindow:
         try:
             if config_file_loc != "":
                 self.config.readConfigFile(config_file_loc)
+                if self.config_text.cget("text") != "":
+                    self.disconnectMail()
                 if self.config.loadConfig(self.mail_details, self.mailbox_details,self.file_save_path, self.connection):
                     showinfo("Połączenie",f"Połączono:\nAdres: {self.mail_details.address}\nPort: {self.mail_details.port}\nProtokół: {self.mail_details.protocol}")
                     self.config_text.config(text=config_file_loc)
@@ -832,9 +932,8 @@ class MainWindow:
     def openMailboxSelection(self):
         MailboxSelectionWindow(self.master, self.connection, self.mailbox_details,onMailboxSelectionSuccess = self.onMailboxSelectionSuccess)
 
-    def openSavePath(self):
-        SavePathWindow(self.master, self.file_save_path, self.onPathSetSuccess)
-        # self.refreshUi()
+    def openDateSettings(self):
+        DateWindow(self.master, self.date, onDateSetSuccess = self.onDateSetSuccess)
 
     def getUserFileLocation(self):
         user_file_loc = askopenfilename(title="Wybierz plik Excel z użytkownikami",
@@ -854,10 +953,13 @@ class MainWindow:
             self.app_state.state["save_loc_set"] = True
             self.refreshUi()
 
+    def openSavePath(self):
+        SavePathWindow(self.master, self.file_save_path, self.onPathSetSuccess)
+
     def openFilter(self):
-        if not self.filter:
-            self.filter = Filter()
-        FilterWindow(self.master, self.filter, self.onFilterSet)
+        if not self.subject_filter:
+            self.subject_filter = Filter()
+        FilterWindow(self.master, self.subject_filter, self.onFilterSet)
 
     def downloadAttachments(self):
 
@@ -874,7 +976,7 @@ class MainWindow:
         loading_window.update()
 
         mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
-        download = Download(self.connection,mail_data,self.user_file.users_class_list, self.filter)
+        download = Download(self.connection,mail_data,self.user_file.users_class_list, self.subject_filter)
         download.getMailData()
 
         loading_window.destroy()
@@ -975,19 +1077,17 @@ class MainWindow:
         self.app_state.state["mailbox_set"] = True
         self.refreshUi()
 
-    def openDateSettings(self):
-        DateWindow(self.master, self.date, onDateSetSuccess = self.onDateSetSuccess)
 
     def onDateSetSuccess(self):
         self.app_state.state["date_set"] = True
         self.refreshUi()
 
     def onPathSetSuccess(self):
-        self.app_state.state["save_method_set"] = True
+        self.app_state.state["save_method_set"] = True if self.file_save_path.save_method.strip() != "" else False
         self.refreshUi()
 
     def onFilterSet(self):
-        self.filter_text.config(text=self.filter.filter_text)
+        self.filter_text.config(text=self.subject_filter.filter_text)
 
 # =========================
 # OKNO LOGOWANIA
@@ -1127,7 +1227,7 @@ class MailboxSelectionWindow:
         self.save_choice = ttk.Button(self.window,text="Zapisz", command=self.saveMailbox)
 
     def placeWidgets(self):
-        self.window.geometry("170x160")
+        self.window.geometry("170x140")
 
         for i in range(3):
             self.window.columnconfigure(i, weight=1)
@@ -1285,20 +1385,20 @@ class SavePathWindow:
         self.window.title("Ścieżka zapisu")
 
         self.insert_frame = ttk.Frame(self.window)
+        self.insert_field_frame = ttk.Frame(self.insert_frame)
+        self.insert_symbol_frame = ttk.Frame(self.insert_frame)
 
         self.onPathSetSuccess = onPathSetSuccess
         self.file_save_path:FileSavePath = file_save_path
         self.example_user:User = file_save_path.example_user
-        self.example_datetime = {"data": file_save_path.example_date,
-                                 "czas": file_save_path.example_time}
-        self.types = ["imie",
-                      "nazwisko",
-                      "indeks",
-                      "rok",
-                      "grupa",
-                      "specjalizacja",
-                      "data",
-                      "czas"]
+        self.example_datetime = file_save_path.example_datetime
+
+        self.types = file_save_path.types
+
+        self.symbols = file_save_path.symbols
+
+        self.symbol_buttons = []
+
         self.path_var = tk.StringVar()
         self.insert_var = tk.StringVar()
         self.window.grab_set()
@@ -1312,17 +1412,26 @@ class SavePathWindow:
                                          "\nSłowa kluczowe zostaną automatycznie oznaczone w {}."
                                     )
 
-        self.insert_combo = ttk.Combobox(self.insert_frame,
+        self.insert_combo = ttk.Combobox(self.insert_field_frame,
                                          textvariable=self.insert_var,
                                          values=[word.capitalize() for word in self.types],
                                          state="readonly",
                                          width=15
                                          )
 
-        self.insert_button = ttk.Button(self.insert_frame,
+        self.insert_button = ttk.Button(self.insert_field_frame,
                                         text="Wstaw pole",
-                                        command=self.insert_field
+                                        command=self.insert_field,
+                                        width=15
                                         )
+        for symbol in self.symbols:
+            button = ttk.Button(
+                self.insert_symbol_frame,
+                text=symbol.capitalize(),
+                width=7
+            )
+            button.bind("<Button-1>", self.insert_symbol)
+            self.symbol_buttons.append(button)
 
         self.path_entry = ttk.Entry(self.window,
                                     width=80,
@@ -1347,6 +1456,11 @@ class SavePathWindow:
         self.info_label.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 5), sticky="w")
 
         self.insert_frame.grid(row=1,column=0, columnspan=2, padx=5, sticky="w")
+        self.insert_field_frame.grid(row=0,column=0, columnspan=2, sticky="w")
+        self.insert_symbol_frame.grid(row=0,column=2, columnspan=4, padx=(15,0), sticky="w")
+
+        for i,symbol_button in enumerate(self.symbol_buttons):
+            symbol_button.grid(row=0, column=i, padx=10,pady=5,sticky="w")
 
         self.insert_combo.grid(row=0, column=0, padx=5,pady=5,)
         self.insert_button.grid(row=0, column=1, padx=5,pady=5,)
@@ -1378,11 +1492,21 @@ class SavePathWindow:
         self.insert_combo.set("")
         self.on_text_change()
 
+    def insert_symbol(self, event):
+        symbol = event.widget["text"]
+        if symbol == "Spacja":
+            symbol = " "
+        cursor_position = self.path_entry.index(tk.INSERT)
+        self.path_entry.insert(cursor_position, f"{symbol}")
+        self.on_text_change()
+
     def on_text_change(self, event=None):
         try:
-            if len(event.keysym) > 1:
+            if len(event.keysym) > 1 and event.char not in ["/", "\\", "{", "}"]:
                 self.preview_value.config(text=self.path_entry.get())
-                self.update_example_preview(self.path_entry.get())
+                self.example_preview.config(text=self.file_save_path.replaceText(self.path_entry.get(),
+                                                                                 self.file_save_path.example_user.user_info,
+                                                                                 self.file_save_path.example_datetime))
                 return
         except AttributeError:
             pass
@@ -1402,28 +1526,34 @@ class SavePathWindow:
         for brackets in ["{{","}}"]:
             if brackets in new_text:
                 new_text = new_text.replace(brackets,brackets[0])
+        for slash in ["//",r"\\"]:
+            if slash in new_text:
+                new_text = new_text.replace(slash,slash[0])
 
         if new_text != text:
             self.path_entry.delete(0, tk.END)
             self.path_entry.insert(0, new_text)
 
         self.preview_value.config(text=new_text)
-        self.update_example_preview(new_text)
+        self.example_preview.config(text=self.file_save_path.replaceText(new_text,
+                                                                         self.file_save_path.example_user.user_info,
+                                                                         self.file_save_path.example_datetime))
 
-    def update_example_preview(self, preview_text):
-        example_text = preview_text
-        for word in self.types:
-            if word.lower() in preview_text.lower():
-                example_text = re.sub(
-                    f"{{{word.capitalize()}}}",
-                    (self.example_user.user_info[word]
-                     if word in self.example_user.user_info.keys()
-                     else self.example_datetime[word]),
-                    example_text,
-                    flags=re.IGNORECASE
-                )
+        # self.update_example_preview(new_text)
 
-        self.example_preview.config(text=example_text)
+    # def update_example_preview(self, preview_text):
+    #     example_text = preview_text
+    #     for word in self.types:
+    #         if word.lower() in preview_text.lower():
+    #             example_text = re.sub(
+    #                 f"{{{word.capitalize()}}}",
+    #                 (self.example_user.user_info[word]
+    #                  if word in self.example_user.user_info.keys()
+    #                  else self.example_datetime[word]),
+    #                 example_text,
+    #                 flags=re.IGNORECASE
+    #             )
+    #     self.example_preview.config(text=example_text)
 
     def save(self):
         self.file_save_path.save_method = self.path_var.get()
@@ -1433,13 +1563,13 @@ class SavePathWindow:
 
 
 class FilterWindow:
-    def __init__(self, master, filter, onFilterSet):
+    def __init__(self, master, subject_filter, onFilterSet):
         self.window = tk.Toplevel(master)
         self.window.title("Filtrowanie")
         self.insert_frame = ttk.Frame(self.window)
         self.filter_var = tk.StringVar()
         self.onFilterSet = onFilterSet
-        self.filter:Filter = filter
+        self.subject_filter:Filter = subject_filter
         self.window.grab_set()
         self.build()
         self.setDefault()
@@ -1466,12 +1596,12 @@ class FilterWindow:
         self.save_button.grid(row=2, column=0, padx=10, pady=5, sticky="w")
 
     def setDefault(self):
-        if self.filter.filter_text != "":
+        if self.subject_filter.filter_text != "":
             self.filter_entry.delete(0, tk.END)
-            self.filter_entry.insert(0, self.filter.filter_text)
+            self.filter_entry.insert(0, self.subject_filter.filter_text)
 
     def save(self):
-        self.filter.readFilter(self.filter_entry.get())
+        self.subject_filter.readFilter(self.filter_entry.get())
         self.window.destroy()
         self.onFilterSet()
 
