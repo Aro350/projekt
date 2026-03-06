@@ -11,11 +11,10 @@ from email.parser import BytesParser
 
 import poplib
 from email.utils import parsedate_to_datetime
-from multiprocessing.spawn import import_main_path
 
 import patoolib
 
-from tkinter.messagebox import showwarning, showerror, showinfo
+from tkinter.messagebox import showwarning, showerror, showinfo, askyesno
 
 import pandas as pd
 import json
@@ -24,7 +23,6 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename, askdirectory
 
-from openpyxl.packaging.extended import VectorLpstr
 from tkcalendar import Calendar
 
 # =========================
@@ -331,35 +329,14 @@ class MailData:
                     full_message = message
 
                 parsed_date = parsedate_to_datetime(date_header)
-                message_datetime = {"data": parsed_date.date(),
-                                    "czas": parsed_date.time()}
+                message_datetime = {"data_odbioru": parsed_date.date(),
+                                    "czas_odbioru": parsed_date.time()}
 
                 download.getAttachment(full_message, self.file_save_path, user, message_datetime)
 
             except Exception as e:
                 print(f"Błąd przy wiadomości {i}: {e}")
                 continue
-
-    # def getPopMessage(self,download,username_dict):
-    #     count,_ = self.connection.connect_host.stat()
-    #     date_filter = self.dateFilter()
-    #     for i in range(count,0,-1):
-    #         resp = self.connection.connect_host.retr(i)
-    #         joined = b"\r\n".join(resp[1])
-    #         message = BytesParser(policy=policy.default).parsebytes(joined)
-    #         try:
-    #             message_date = parsedate_to_datetime(message.get("Date")).date()
-    #             if message_date < self.date_list[0] and self.date_choice != "to":
-    #                 continue
-    #             if date_filter(message_date):
-    #                 user = self.checkUser(message.get("From",""),username_dict)
-    #                 if user:
-    #                     print(user.user_info)
-    #                     download.getAttachment(message, self.file_save_path, user)
-    #         except Exception as e:
-    #             print(e)
-    #             print(e.__class__.__name__)
-    #             continue
 
     def dateFilter(self):
         match self.date_choice:
@@ -385,13 +362,20 @@ class MailData:
         return None
 
 class Download:
-    def __init__(self, connection,mail_data, users_class_list, subject_filter):
+    def __init__(self, connection,mail_data, users_class_list, subject_filter, ask_log_file):
         self.connection:Connection = connection.connect_host
         self.mail_data:MailData = mail_data
         self.users_class_list: list[User] = users_class_list
         self.subject_filter:Filter = subject_filter
+        self.ask_log_file = ask_log_file
+        self.log_data = None
+        self.user_count = []
+        self.message_count = []
+        self.attachment_count = 0
 
     def getMailData(self):
+        if self.ask_log_file:
+            self.log_data={}
         self.mail_data.getMessage(self)
 
     def makeUsernameDict(self):
@@ -419,7 +403,7 @@ class Download:
 
         if not message_datetime:
             parsed_date = parsedate_to_datetime(message.get("Date"))
-            message_datetime = {"data": parsed_date.date(), "czas": parsed_date.time()}
+            message_datetime = {"data_odbioru": parsed_date.date(), "czas_odbioru": parsed_date.time()}
 
         file_save_path.addUserInfo(user.user_info, message_datetime)
         full_save_path = file_save_path.full_save_path
@@ -429,6 +413,8 @@ class Download:
             payload = attachment.get_payload(decode=True)
             print(f"Znaleziono: {filename}")
             self.saveAttachments(payload, filename, full_save_path, user)
+            if self.ask_log_file:
+                self.add_log(message, user, filename, full_save_path)
 
     def saveAttachments(self, payload,filename,full_save_path, user):
         file_path = os.path.join(full_save_path,filename)
@@ -438,6 +424,7 @@ class Download:
             else:
                 with open(f"{file_path}","wb") as f:
                     f.write(payload)
+                    self.attachment_count += 1
             if patoolib.is_archive(str(file_path)):
                 extract_dir = (full_save_path+
                             filename.split(".")[0]+
@@ -448,6 +435,54 @@ class Download:
                 patoolib.extract_archive(archive=str(file_path),outdir=extract_dir)
         except Exception as e:
             print(f"Błąd zapisu pliku. {e}")
+
+    def add_log(self, message, user, filename, full_save_path):
+
+        date = str(parsedate_to_datetime(message.get("Date")).date())
+        user_name = f"{user.user_info['imie']} {user.user_info['nazwisko']}"
+        subject = str(message.get("Subject","Brak tematu"))
+        self.user_count.append(user.username)
+        self.message_count.append(f"{message.get('From')}: {message.get('Message-ID')}")
+
+        if date not in self.log_data:
+            self.log_data[date] = {}
+
+        if user_name not in self.log_data[date]:
+            self.log_data[date][user_name] = {}
+
+        if subject not in self.log_data[date][user_name]:
+            self.log_data[date][user_name][subject] = {}
+
+        if full_save_path not in self.log_data[date][user_name][subject]:
+            self.log_data[date][user_name][subject][full_save_path] = []
+
+        self.log_data[date][user_name][subject][full_save_path].append(filename)
+
+    def save_log(self,log_save_loc):
+        today = datetime.datetime.today()
+        if log_save_loc == "":
+            log_save_loc = f"dziennik_{today.strftime("%d-%m-%Y_%H:%M:%S")}.txt"
+
+        with open(log_save_loc, "w", encoding="utf-8") as f:
+            f.write(f"***** Data utworzenia dziennika: {str(today.strftime("%d-%m-%Y   %H-%M-%S"))} *****\n")
+            self.message_count = len(set(self.message_count))
+            self.user_count = len(set(self.user_count))
+            f.write(f"Pobrano: {self.attachment_count} załączników\n"
+                    f"      z: {self.message_count} wiadomości\n"
+                    f"     od: {self.user_count} użytkowników\n")
+
+            for date in sorted(self.log_data):
+                f.write(f"{date}\n")
+                for user_name in self.log_data[date]:
+                    f.write(f"  {user_name}\n")
+                    for subject in self.log_data[date][user_name]:
+                        f.write(f"      {subject}\n")
+                        for file_save_path in self.log_data[date][user_name][subject]:
+                            f.write(f"          {file_save_path}\n")
+                            for attachment in self.log_data[date][user_name][subject][file_save_path]:
+                                f.write(f"              {attachment}\n")
+
+                f.write("\n")
 
 class FileSavePath:
     def __init__(self):
@@ -462,8 +497,11 @@ class FileSavePath:
                       "rok",
                       "grupa",
                       "specjalizacja",
-                      "data",
-                      "czas"]
+                      "data_zapisu",
+                      "czas_zapisu",
+                      "data_odbioru",
+                      "czas_odbioru"
+                      ]
 
         self.symbols = ["/",
                         "_",
@@ -471,8 +509,12 @@ class FileSavePath:
                         "-"]
 
         self.example_save_text = ""
-        self.example_datetime = {"data": datetime.datetime.today(),
-                                 "czas": datetime.datetime.now().time()}
+
+        self.download_datetime = {"data_zapisu": datetime.datetime.today().strftime('%Y-%m-%d'),
+                                  "czas_zapisu": datetime.datetime.now().time().strftime('%H-%M-%S')}
+
+        self.example_receive_datetime = {"data_odbioru": datetime.datetime.today(),
+                                         "czas_odbioru": datetime.datetime.now().time()}
 
         self.example_user = User("jankowalski@email.pl",
                                  "Jan",
@@ -486,19 +528,25 @@ class FileSavePath:
         self.save_method = save_method
         self.example_save_text = self.replaceText(save_method,
                                                   self.example_user.user_info,
-                                                  self.example_datetime)
+                                                  self.example_receive_datetime)
+
     def replaceText(self,raw_text, message_user_info, message_datetime):
         replaced_text = raw_text
         if any(time_word.lower() in raw_text.lower() for time_word in message_datetime.keys()):
-            message_datetime["data"] = message_datetime["data"].strftime('%d-%m-%Y') if type(message_datetime["data"]) != str else message_datetime["data"]
-            message_datetime["czas"] = message_datetime["czas"].strftime('%H-%M-%S') if type(message_datetime["czas"]) != str else message_datetime["czas"]
+            message_datetime["data_odbioru"] = message_datetime["data_odbioru"].strftime('%Y-%m-%d') if type(message_datetime["data_odbioru"]) != str else message_datetime["data_odbioru"]
+            message_datetime["czas_odbioru"] = message_datetime["czas_odbioru"].strftime('%H-%M-%S') if type(message_datetime["czas_odbioru"]) != str else message_datetime["czas_odbioru"]
+
         for word in self.types:
             if word.lower() in raw_text.lower():
+                if word in message_user_info:
+                    value = message_user_info[word]
+                elif word in message_datetime:
+                    value = message_datetime[word]
+                else:
+                    value = self.download_datetime[word]
                 replaced_text = re.sub(
                     f"{{{word.capitalize()}}}",
-                    (message_user_info[word]
-                     if word in message_user_info.keys()
-                     else message_datetime[word]),
+                    str(value),
                     replaced_text,
                     flags=re.IGNORECASE
                 )
@@ -562,9 +610,6 @@ class UserFile:
         self.user_file_location = ""
         self.users_list = []
         self.users_class_list: list[User] = []
-
-    # def setFromConfig(self, config:Config):
-    #     self.user_file_location = config.user_file_location
 
     def getUsers(self,user_file_location):
         if self.setUserFile(user_file_location):
@@ -961,27 +1006,6 @@ class MainWindow:
             self.subject_filter = Filter()
         FilterWindow(self.master, self.subject_filter, self.onFilterSet)
 
-    def downloadAttachments(self):
-
-        loading_window = tk.Toplevel(self.master)
-        loading_window.title("Pobieranie")
-        loading_window.geometry("300x100")
-        loading_window.transient(self.master)
-        loading_window.grab_set()
-
-        ttk.Label(
-            loading_window,
-            text="Pobieranie wiadomości...\nProszę czekać."
-        ).pack(expand=True, pady=20)
-        loading_window.update()
-
-        mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
-        download = Download(self.connection,mail_data,self.user_file.users_class_list, self.subject_filter)
-        download.getMailData()
-
-        loading_window.destroy()
-        showinfo("Gotowe", "Pobieranie zakończone")
-
     def saveConfig(self):
         config_save_location = asksaveasfilename(defaultextension=".json",
                                                 filetypes=(("Json File", "*.json"),))
@@ -998,6 +1022,37 @@ class MainWindow:
             self.config.saveParameters(config_params,config_save_location)
         else:
             showwarning("Ostrzeżenie", "Nie zapisano konfiguracji")
+
+    def downloadAttachments(self):
+        self.master.bell()
+        ask_log_file = askyesno("Plik dziennika","Czy stworzyć plik dziennika?")
+        if ask_log_file:
+            self.master.bell()
+            log_save_loc = asksaveasfilename(defaultextension=".txt",
+                                             filetypes=(("Text files", "*.txt"),),
+                                             title="Zapisz plik dziennika")
+            if not log_save_loc:
+                log_save_loc = ""
+        loading_window = tk.Toplevel(self.master)
+        loading_window.title("Pobieranie")
+        loading_window.geometry("300x100")
+        loading_window.transient(self.master)
+        loading_window.grab_set()
+
+        ttk.Label(
+            loading_window,
+            text="Pobieranie wiadomości...\nProszę czekać."
+        ).pack(expand=True, pady=20)
+        loading_window.update()
+
+        mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
+        download = Download(self.connection,mail_data,self.user_file.users_class_list, self.subject_filter, ask_log_file)
+        download.getMailData()
+
+        loading_window.destroy()
+        if ask_log_file:
+            download.save_log(log_save_loc)
+        showinfo("Gotowe", "Pobieranie zakończone")
 
     def refreshUi(self):
         if self.app_state.state["mail_connected"]:
@@ -1391,7 +1446,8 @@ class SavePathWindow:
         self.onPathSetSuccess = onPathSetSuccess
         self.file_save_path:FileSavePath = file_save_path
         self.example_user:User = file_save_path.example_user
-        self.example_datetime = file_save_path.example_datetime
+        self.download_datetime = file_save_path.download_datetime
+        self.example_receive_datetime = file_save_path.example_receive_datetime
 
         self.types = file_save_path.types
 
@@ -1537,23 +1593,7 @@ class SavePathWindow:
         self.preview_value.config(text=new_text)
         self.example_preview.config(text=self.file_save_path.replaceText(new_text,
                                                                          self.file_save_path.example_user.user_info,
-                                                                         self.file_save_path.example_datetime))
-
-        # self.update_example_preview(new_text)
-
-    # def update_example_preview(self, preview_text):
-    #     example_text = preview_text
-    #     for word in self.types:
-    #         if word.lower() in preview_text.lower():
-    #             example_text = re.sub(
-    #                 f"{{{word.capitalize()}}}",
-    #                 (self.example_user.user_info[word]
-    #                  if word in self.example_user.user_info.keys()
-    #                  else self.example_datetime[word]),
-    #                 example_text,
-    #                 flags=re.IGNORECASE
-    #             )
-    #     self.example_preview.config(text=example_text)
+                                                                         self.file_save_path.example_receive_datetime))
 
     def save(self):
         self.file_save_path.save_method = self.path_var.get()
