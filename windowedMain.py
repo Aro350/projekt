@@ -817,6 +817,7 @@ class MainWindow:
         self.placeWidgets()
 
     def build(self):
+        self.info_label = ttk.Label(self.master, text="Uwaga! Zbyt długi czas nieaktywności spowoduje rozłączenie z serwerem. Należy wtedy połączyć się z nim ponownie.")
 
         self.load_config_button = ttk.Button(self.master, text="Wczytaj konfigurację", command=self.openLoadConfig)
         self.mail_connection_button = ttk.Button(self.master, text="Połącz z pocztą", command=self.manageConnection)
@@ -854,7 +855,11 @@ class MainWindow:
         self.save_config_text = ttk.Label(self.master)
 
     def placeWidgets(self):
-        self.master.geometry("680x450")
+        self.master.geometry("700x460")
+        self.master.grid_columnconfigure(0, weight=0)
+        self.master.grid_columnconfigure(1, weight=0)
+        self.master.grid_columnconfigure(2, weight=1)
+        self.info_label.grid(row=0,column=0, columnspan=3,padx=5, pady=(5,0), sticky="w")
 
         buttons = [
             self.load_config_button,
@@ -896,18 +901,20 @@ class MainWindow:
         ]
 
         for i, button in enumerate(buttons):
-            button.grid(row=i, column=0, padx=5, pady=7, sticky=tk.W)
+            button.grid(row=i+1, column=0, padx=5, pady=7, sticky="w")
             button.config(width=30)
-        self.load_config_button.grid(row=0,column=0,pady = (15,7))
+        # self.load_config_button.grid(row=0,column=0,pady = (15,7))
+
         for i, label in enumerate(labels):
-            label.grid(row=i, column=1, padx=5, pady=7, sticky=tk.W)
-        self.config_label.grid(row=0,column=1,pady = (15,7))
+            label.grid(row=i+1, column=1, padx=5, pady=7, sticky="w")
+        # self.config_label.grid(row=0,column=1,pady = (15,7))
 
         for i, text in enumerate(texts):
-            text.grid(row=i, column=2, padx=5, pady=7, sticky=tk.W)
-        self.config_text.grid(row=0,column=2,pady = (15,7))
-
-        self.download_button.grid(row=len(buttons)+2,column=0, columnspan=2, pady=(10,0))
+            text.grid(row=i+1, column=2, padx=5, pady=7, sticky="w")
+            text.config(text = "")
+        # self.config_text.grid(row=0,column=2,pady = (15,7))
+        self.download_button.grid(row=len(buttons)+3,column=0, columnspan=2, padx=5,pady=(10,10), sticky="w")
+        self.download_button.config(width=30)
 
     def openLoadConfig(self):
         config_file_loc = askopenfilename(title="Wybierz plik z zapisaną konfiguracją",
@@ -1105,6 +1112,7 @@ class MainWindow:
         else:
             self.download_button.config(state=tk.DISABLED)
             self.save_config_button.config(state=tk.DISABLED)
+        self.master.geometry("")
 
 
     def onConnectionSuccess(self, mail_details):
