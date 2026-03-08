@@ -419,12 +419,12 @@ class Download:
     def saveAttachments(self, payload,filename,full_save_path, user):
         file_path = os.path.join(full_save_path,filename)
         try:
-            if os.path.exists(file_path):
-                print(f"Plik {filename} użytkownika {user.username} już istnieje.")
-            else:
-                with open(f"{file_path}","wb") as f:
-                    f.write(payload)
-                    self.attachment_count += 1
+            # if os.path.exists(file_path):
+            #     print(f"Plik {filename} użytkownika {user.username} już istnieje.")
+            # else:
+            with open(f"{file_path}","wb") as f:
+                f.write(payload)
+                self.attachment_count += 1
             if patoolib.is_archive(str(file_path)):
                 extract_dir = (full_save_path+
                             filename.split(".")[0]+
@@ -461,10 +461,10 @@ class Download:
     def save_log(self,log_save_loc):
         today = datetime.datetime.today()
         if log_save_loc == "":
-            log_save_loc = f"dziennik_{today.strftime("%d-%m-%Y_%H:%M:%S")}.txt"
+            log_save_loc = f"dziennik_{today.strftime("%d-%m-%Y_%H-%M-%S")}.txt"
 
         with open(log_save_loc, "w", encoding="utf-8") as f:
-            f.write(f"***** Data utworzenia dziennika: {str(today.strftime("%d-%m-%Y   %H-%M-%S"))} *****\n")
+            f.write(f"***** Data utworzenia dziennika: {str(today.strftime("%d-%m-%Y  %H:%M:%S"))} *****\n")
             self.message_count = len(set(self.message_count))
             self.user_count = len(set(self.user_count))
             f.write(f"Pobrano: {self.attachment_count} załączników\n"
