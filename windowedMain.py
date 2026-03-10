@@ -4,6 +4,7 @@ import os
 import socket
 
 import re
+import time
 
 from email.message import EmailMessage
 from email import policy
@@ -167,12 +168,31 @@ class Connection:
             self.connect_host.pass_(user_credentials.password)
             self.username = user_credentials.username
             return True
-        raise ValueError
+        return False
         # except imaplib.IMAP4.error:
         #     return False
         # except error_proto:
         #     return False
 
+    def check_connection(self):
+        try:
+            if self.protocol == "IMAP":
+                status, _ = self.connect_host.noop()
+                return status == "OK"
+
+            elif self.protocol == "POP3":
+                self.connect_host.stat()
+                return True
+        except:
+            return False
+
+    def reconnect(self, mail_details,app_state):
+        try:
+            self.disconnect()
+            if app_state.state["mail_connected"]:
+                return self.connect(mail_details)
+        except:
+            return False
 
 class MailDetails:
     def __init__(self, address="", port=None, protocol=""):
@@ -789,7 +809,6 @@ class UserCredentials:
 # =========================
 # OKNA
 # =========================
-
 class MainWindow:
     def __init__(self,
                  master,
@@ -913,7 +932,7 @@ class MainWindow:
             text.grid(row=i+1, column=2, padx=5, pady=7, sticky="w")
             text.config(text = "")
         # self.config_text.grid(row=0,column=2,pady = (15,7))
-        self.download_button.grid(row=len(buttons)+3,column=0, columnspan=2, padx=5,pady=(10,10), sticky="w")
+        self.download_button.grid(row=len(buttons)+3,column=0, columnspan=3, padx=5,pady=(10,10), sticky="wesn")
         self.download_button.config(width=30)
 
     def openLoadConfig(self):
@@ -979,7 +998,7 @@ class MainWindow:
         self.refreshUi()
 
     def openLogin(self):
-        LoginWindow(self.master, self.connection, onLoginSuccess= self.onLoginSuccess)
+        LoginWindow(self.master, self.connection, self.mail_details, self.app_state, onLoginSuccess= self.onLoginSuccess)
 
     def openMailboxSelection(self):
         MailboxSelectionWindow(self.master, self.connection, self.mailbox_details,onMailboxSelectionSuccess = self.onMailboxSelectionSuccess)
@@ -1031,6 +1050,23 @@ class MainWindow:
             showwarning("Ostrzeżenie", "Nie zapisano konfiguracji")
 
     def downloadAttachments(self):
+        while not self.connection.check_connection():
+            self.master.bell()
+            temp_window = TempWindow(self.master,"Połączenie","Połączenie z serwerem utracone.\n Ponowne łączenie.")
+
+            if self.connection.reconnect(self.mail_details,self.app_state):
+
+                if self.app_state.state["logged_in"]:
+                    self.openLogin()
+
+                    if self.connection.protocol == "IMAP":
+                        self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
+
+                temp_window.changeContent("Połączono")
+                time.sleep(1)
+                temp_window.closeWindow()
+                del temp_window
+
         self.master.bell()
         ask_log_file = askyesno("Plik dziennika","Czy stworzyć plik dziennika?")
         if ask_log_file:
@@ -1040,26 +1076,30 @@ class MainWindow:
                                              title="Zapisz plik dziennika")
             if not log_save_loc:
                 log_save_loc = ""
-        loading_window = tk.Toplevel(self.master)
-        loading_window.title("Pobieranie")
-        loading_window.geometry("300x100")
-        loading_window.transient(self.master)
-        loading_window.grab_set()
-
-        ttk.Label(
-            loading_window,
-            text="Pobieranie wiadomości...\nProszę czekać."
-        ).pack(expand=True, pady=20)
-        loading_window.update()
-
+        # loading_window = tk.Toplevel(self.master)
+        # loading_window.title("Pobieranie")
+        # loading_window.geometry("300x100")
+        # loading_window.transient(self.master)
+        # loading_window.grab_set()
+        #
+        # ttk.Label(
+        #     loading_window,
+        #     text="Pobieranie wiadomości...\nProszę czekać."
+        # ).pack(expand=True, pady=20)
+        # loading_window.update()
+        temp_window = TempWindow(self.master,"Pobieranie", "Pobieranie wiadomości...\nProszę czekać.")
         mail_data = MailData(self.connection,self.user_file, self.date, self.file_save_path)
         download = Download(self.connection,mail_data,self.user_file.users_class_list, self.subject_filter, ask_log_file)
         download.getMailData()
 
-        loading_window.destroy()
+        temp_window.closeWindow()
+        del temp_window
+
         if ask_log_file:
             download.save_log(log_save_loc)
         showinfo("Gotowe", "Pobieranie zakończone")
+        del mail_data
+        del download
 
     def refreshUi(self):
         if self.app_state.state["mail_connected"]:
@@ -1114,7 +1154,6 @@ class MainWindow:
             self.save_config_button.config(state=tk.DISABLED)
         self.master.geometry("")
 
-
     def onConnectionSuccess(self, mail_details):
         self.app_state.state["mail_connected"] = True
         self.mail_details = mail_details
@@ -1140,7 +1179,6 @@ class MainWindow:
         self.app_state.state["mailbox_set"] = True
         self.refreshUi()
 
-
     def onDateSetSuccess(self):
         self.app_state.state["date_set"] = True
         self.refreshUi()
@@ -1162,7 +1200,7 @@ class MailConnectionWindow:
         self.window.grab_set()
         self.connection = connection
         self.onConnectionSuccess = onConnectionSuccess
-        self.address = tk.StringVar(value="")
+        self.address = tk.StringVar(value="np. stud.prz.edu.pl")
         self.port = tk.StringVar()
         self.protocol = tk.StringVar(value="IMAP")
         self.setDefaultPort()
@@ -1183,6 +1221,8 @@ class MailConnectionWindow:
         self.connect_button = ttk.Button(self.window, text="Połącz", command=self.submit)
         self.status_label = ttk.Label(self.window,textvariable=self.connection_status)
 
+        self.address_input.bind("<FocusIn>", self.focus_in)
+        self.address_input.bind("<FocusOut>", self.focus_out)
     def placeWidgets(self):
         self.window.geometry("250x200")
 
@@ -1197,6 +1237,14 @@ class MailConnectionWindow:
 
         self.connect_button.grid(row=3, column=0, columnspan=2, pady=5)
         self.status_label.grid(row=4, column=0, columnspan=2, pady=5)
+
+    def focus_in(self, event = None):
+        if self.address_input.get().strip() == "np. stud.prz.edu.pl":
+            self.address_input.delete(0, tk.END)
+
+    def focus_out(self, event = None):
+        if self.address_input.get().strip() == "":
+            self.address_input.insert(0, "np. stud.prz.edu.pl")
 
     def setDefaultPort(self):
         protocol = self.protocol.get()
@@ -1223,12 +1271,14 @@ class MailConnectionWindow:
 
 
 class LoginWindow:
-    def __init__(self, master, connection, onLoginSuccess):
+    def __init__(self, master, connection, mail_details, app_state, onLoginSuccess):
         self.window = tk.Toplevel(master)
         self.window.title("Logowanie")
         self.window.grab_set()
         self.onLoginSuccess = onLoginSuccess
         self.connection:Connection = connection
+        self.mail_details:MailDetails = mail_details
+        self.app_state: AppState = app_state
         self.protocol = self.connection.protocol
         self.username = tk.StringVar()
         self.password = tk.StringVar()
@@ -1257,6 +1307,14 @@ class LoginWindow:
     def submit(self):
         user_credentials = UserCredentials(username = self.username.get().strip(),
                                            password = self.password.get())
+        while not self.connection.check_connection():
+            self.window.bell()
+            temp_window = TempWindow(self.window,"Połączenie","Połączenie z serwerem utracone.\n Ponowne łączenie.")
+            if self.connection.reconnect(self.mail_details,self.app_state):
+                temp_window.changeContent("Połączono")
+                time.sleep(1)
+                temp_window.closeWindow()
+                del temp_window
         self.login_status.set("Logowanie...")
         self.window.update_idletasks()
         try:
@@ -1270,7 +1328,7 @@ class LoginWindow:
         except ValueError:
             showerror("Błąd logowania", "Błędny protokół")
         except Exception as e:
-            showerror("Błąd",f"{type(e)}")
+            showerror("Błąd",f"{type(e)}______{e}_______{e.__class__.__name__}")
         self.login_status.set("")
         self.window.update_idletasks()
 
@@ -1652,6 +1710,26 @@ class FilterWindow:
         self.subject_filter.readFilter(self.filter_entry.get())
         self.window.destroy()
         self.onFilterSet()
+
+class TempWindow:
+    def __init__(self, master, title, text):
+        self.temp_window = tk.Toplevel(master)
+        self.temp_window.title(title)
+        self.temp_window.geometry("300x100")
+        self.temp_window.transient(master)
+        self.temp_window.grab_set()
+        self.text_label =  ttk.Label(self.temp_window,
+                                     # text="Pobieranie wiadomości...\nProszę czekać."
+                                     text = text)
+        self.text_label.pack()
+        self.temp_window.update()
+
+    def closeWindow(self):
+        self.temp_window.destroy()
+
+    def changeContent(self,text):
+        self.text_label.config(text=text)
+        self.temp_window.update()
 
 # =========================
 # START
