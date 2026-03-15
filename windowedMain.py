@@ -16,7 +16,7 @@ from email.utils import parsedate_to_datetime
 
 import patoolib
 
-from tkinter.messagebox import showwarning, showerror, showinfo, askyesno, askretrycancel
+from tkinter.messagebox import showwarning, showerror, showinfo, askyesno, askretrycancel, askokcancel
 
 import pandas as pd
 import json
@@ -218,8 +218,13 @@ class Connection:
             return True
         return False
 
-    def check_connection_info(self, window, app_state):
-        while askretrycancel("Połaczenie", "Połączenie z serwerem zostało utracone."):
+    def check_connection_info(self, window, app_state, flag = None):
+        if flag == "inactivity":
+            condition = askretrycancel("Połączenie", "Zostałeś wylogowany. Połączyć ponownie?")
+        else:
+            condition = askretrycancel("Połaczenie", "Połączenie z serwerem zostało utracone.")
+
+        while condition:
             temp_window = TempWindow(window, "Połączenie", "Łączenie...")
             time.sleep(1)
             if self.reconnect(self.mail_details, app_state):
@@ -259,12 +264,12 @@ class Connection:
                              err_msg,
                              window,
                              app_state):
-
+        print(err_msg)
         reauth = False
 
         if "nonauth" in err_msg or "inactivity" in err_msg:
-            showinfo("Połączenie", "Zostałeś wylogowany. Zaloguj się ponownie")
-            reauth = True
+            if self.check_connection_info(window, app_state, "inactivity"):
+                reauth = True
         elif self.check_connection_info(window, app_state):
             reauth = True
         elif all([word in str(err_msg) for word in ("NoneType", "login")]):
@@ -281,7 +286,6 @@ class Connection:
                     self.connect_host.select(self.mailbox_details.chosen_mailbox)
                 time.sleep(2)
                 temp_window.closeWindow()
-
                 return True
         return False
 
@@ -1652,13 +1656,14 @@ class MailboxSelectionWindow(TemplateWindow):
                                                              self.app_state)
 
             if connected:
-                retry = askretrycancel("Wznowienie", "Sesja odświeżona. Czy spróbować ponownie?")
+                showinfo("Wznowienie", "Sesja odświeżona.")
                 self.window.focus_force()
-                if retry:
-                    self.fillMailboxes()
-                    return True
+                self.fillMailboxes()
                 return True
             return False
+        except Exception as e:
+            print(e)
+
 
     def saveMailbox(self):
         chosen_mailbox = self.mailbox_choice.get()
