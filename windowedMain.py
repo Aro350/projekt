@@ -655,7 +655,6 @@ class FileSavePath:
 
     def setFromConfig(self, save_method):
         self.save_method = save_method
-        print(save_method)
         if self.save_method != "":
             self.example_save_text = self.replaceText(save_method,
                                                       self.example_user.user_info,
@@ -1095,6 +1094,7 @@ class MainWindow:
                 if self.config_text.cget("text") != "" and self.connection.connect_host:
                     self.save_path_text.config(text="")
                     self.file_save_path.save_method = ""
+                    self.app_state.state["save_method_set"] = False
                     self.disconnectMail()
                 loaded, connected = self.config.loadConfig(self.mail_details, self.mailbox_details, self.file_save_path,
                                                            self.connection)
