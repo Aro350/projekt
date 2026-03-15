@@ -677,6 +677,8 @@ class FileSavePath:
                     value = message_datetime[word]
                 else:
                     value = self.download_datetime[word]
+                if str(value).strip() == "":
+                    value = "None"
                 replaced_text = re.sub(
                     f"{{{word.capitalize()}}}",
                     str(value),
@@ -1506,7 +1508,7 @@ class MailConnectionWindow(TemplateWindow):
         self.connection_status.set("Łączenie...")
         self.window.update_idletasks()
         mail_details = MailDetails()
-        if mail_details.checkDetails(address=self.address.get(),
+        if mail_details.setDetails(address=self.address.get(),
                                      port=self.port.get(),
                                      protocol=self.protocol.get()):
             if self.connection.connect(mail_details):
