@@ -24,8 +24,9 @@ Projekt został zaprojektowany jako skrypt konsolowy w Pythonie z dodatkiem inte
 - openpyxl
 - tkcalendar
 - patool
+- cryptography
 
 ### Instalacja wymaganych bibliotek:
-- pip install pandas openpyxl tkcalendar patool
+- pip install pandas openpyxl tkcalendar patool cryptography
 - lub
 - pip install -r ścieżka_do_pliku/requirements.txt
