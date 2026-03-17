@@ -84,7 +84,6 @@ class AppState:
             self.state[key] = False
 
     def checkAppStatus(self):
-        print(self.state)
         return all(self.state.values())
 
 
@@ -138,7 +137,6 @@ class Config:
 
         if self.username and self.password:
             self.decryptCredentials()
-            print(self.username, self.password)
             app.user_credentials = UserCredentials(self.username, self.password)
             if app.app_state.state["mail_connected"]:
                 if app.connection.auth(app.user_credentials):
@@ -363,7 +361,6 @@ class Connection:
                              err_msg,
                              window,
                              app_state):
-        print(err_msg)
         reauth = False
 
         if "nonauth" in err_msg or "inactivity" in err_msg:
@@ -576,12 +573,7 @@ class MailData:
 
     def checkUser(self, mail_user, username_dict):
         for username in username_dict.keys():
-            print("Username", username)
-            print("MailUser", mail_user)
             if username in mail_user:
-                print(mail_user)
-                print("----------")
-                print(username)
                 user = username_dict[username]
                 return user
         return None
@@ -1768,6 +1760,7 @@ class MailboxSelectionWindow(TemplateWindow):
             return False
         except Exception as e:
             print(e)
+            pass
 
     def saveMailbox(self):
         chosen_mailbox = self.mailbox_choice.get()
