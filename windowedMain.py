@@ -138,20 +138,17 @@ class Config:
         if self.username and self.password:
             self.decryptCredentials()
             app.user_credentials = UserCredentials(self.username, self.password)
+            app.login_text.config(text=self.username)
             if app.app_state.state["mail_connected"]:
                 if app.connection.auth(app.user_credentials):
                     app.app_state.state["logged_in"] = True
 
         if self.chosen_mailbox:
+            if not app.mailbox_details:
+                app.mailbox_details = MailboxDetails()
             app.mailbox_details.setFromConfig(self.chosen_mailbox)
-            if app.app_state.state["logged_in"] and app.mail_details.protocol == "IMAP":
-                try:
-                    app.connection.connect_host.select(app.mailbox_details.chosen_mailbox)
-                    app.app_state.state["mailbox_set"] = True
-                except:
-                    pass
-            elif app.mail_details.protocol == "POP3":
-                app.app_state.state["mailbox_set"] = True
+            app.mailbox_text.config(text=self.chosen_mailbox)
+            app.app_state.state["mailbox_set"] = True
 
         if self.user_file_location:
             if app.user_file.getUsers(self.user_file_location):
@@ -232,34 +229,22 @@ class Connection:
         self.user_credentials = None
 
     def connect(self, mail_details):
-        try:
-            if mail_details.protocol == "IMAP":
-                self.protocol = "IMAP"
-                self.mail_details = mail_details
-                self.connect_host = imaplib.IMAP4_SSL(
-                    mail_details.address,
-                    mail_details.port)
-                return True
+        if mail_details.protocol == "IMAP":
+            self.protocol = "IMAP"
+            self.mail_details = mail_details
+            self.connect_host = imaplib.IMAP4_SSL(
+                mail_details.address,
+                mail_details.port)
+            return True
 
-            elif mail_details.protocol == "POP3":
-                self.protocol = "POP3"
-                self.mail_details = mail_details
-                self.connect_host = poplib.POP3_SSL(
-                    mail_details.address,
-                    mail_details.port)
-                return True
-            return False
-
-        except (socket.gaierror, OSError):
-            showerror("Błąd", "Błąd połączenia.\nSprawdź połączenie internetowe i dostępność serwera.")
-            return False
-        except TimeoutError:
-            showerror("Błąd",
-                      "Przekroczono limit czasu połączenia. Otrzymano błędny port lub usługa jest chwilowo niedostępna")
-            return False
-        except Exception as e:
-            showerror("Błąd", f"\n{e}")
-            exit()
+        elif mail_details.protocol == "POP3":
+            self.protocol = "POP3"
+            self.mail_details = mail_details
+            self.connect_host = poplib.POP3_SSL(
+                mail_details.address,
+                mail_details.port)
+            return True
+        return False
 
     def disconnect(self):
         if not self.connect_host:
@@ -1212,13 +1197,18 @@ class MainWindow:
         self.config.clearConfig()
         self.app_state.clearAppState()
 
-        self.user_file.user_file_location = ""
-        self.user_file.users_class_list = []
-        self.date.date_list = []
-        self.date.date_range = ""
-        self.file_save_path.save_location = ""
-        self.file_save_path.save_method = ""
-        self.subject_filter = None
+        self.user_file = UserFile()
+        self.file_save_path = FileSavePath()
+        self.date = Date()
+        self.subject_filter = Filter()
+
+        # self.user_file.user_file_location = ""
+        # self.user_file.users_class_list = []
+        # self.date.date_list = []
+        # self.date.date_range = ""
+        # self.file_save_path.save_location = ""
+        # self.file_save_path.save_method = ""
+        # self.subject_filter = None
 
         self.config_text.config(text="")
         self.refreshUi()
@@ -1259,12 +1249,12 @@ class MainWindow:
     def disconnectMail(self, flag=0):
         self.connection.disconnect()
         self.user_credentials = None
+        self.mailbox_details = None
         self.app_state.state["mail_connected"] = False
         self.app_state.state["logged_in"] = False
         self.app_state.state["mailbox_set"] = False
         self.login_text.config(text="")
         self.mailbox_text.config(text="")
-        self.mailbox_details.mailbox_list = []
         if flag == 0:
             self.connection_text.config(text="")
             showinfo("Połączenie", "Rozłączono z pocztą")
@@ -1284,6 +1274,8 @@ class MainWindow:
     def openMailboxSelection(self):
         if not self.mailbox_selection_opened:
             self.mailbox_selection_opened = True
+            if not self.mailbox_details:
+                self.mailbox_details = MailboxDetails()
             MailboxSelectionWindow(self.master,
                                    self.connection,
                                    self.mailbox_details,
@@ -1352,12 +1344,6 @@ class MainWindow:
                     self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
             pass
 
-        if (self.connection.connect_host
-                and self.connection.protocol == "IMAP"
-                and str(self.connection.connect_host.state).lower() != "selected"):
-            showerror("Pobieranie", "Wybrano nieprawidłową skrzynkę pocztową")
-            return False
-
         ask_log_file = False
         log_save_loc = ""
 
@@ -1374,6 +1360,13 @@ class MainWindow:
         temp_window = TempWindow(self.master, "Pobieranie", "Pobieranie wiadomości...\nProszę czekać.")
 
         try:
+            if self.connection.protocol == "IMAP":
+                self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
+            if (self.connection.connect_host
+                    and self.connection.protocol == "IMAP"
+                    and str(self.connection.connect_host.state).lower() != "selected"):
+                showerror("Pobieranie", "Wybrano nieprawidłową skrzynkę pocztową")
+                return False
             mail_data = MailData(self.connection, self.user_file, self.date, self.file_save_path)
             download = Download(self.connection, mail_data, self.user_file.users_class_list, self.subject_filter,
                                 ask_log_file)
@@ -1444,8 +1437,6 @@ class MainWindow:
                 self.mailbox_text.config(text="INBOX")
             else:
                 self.mailbox_text.config(text=f"{self.mailbox_details.chosen_mailbox}")
-        else:
-            self.mailbox_text.config(text="")
 
         if self.app_state.state["date_set"]:
             date_text = ""
@@ -1474,6 +1465,7 @@ class MainWindow:
         else:
             self.download_button.config(state=tk.DISABLED)
             self.save_config_button.config(state=tk.DISABLED)
+        print(self.app_state.state)
 
         self.master.geometry("")
 
@@ -1482,20 +1474,24 @@ class MainWindow:
         self.mail_details = mail_details
         if self.mail_details.protocol == "POP3":
             self.app_state.state["mailbox_set"] = True
+        if self.user_credentials:
+            if self.connection.auth(self.user_credentials):
+                self.onLoginSuccess(self.connection.connect_host, self.user_credentials)
         self.refreshUi()
 
     def onLoginSuccess(self, connect_host, user_credentials):
         self.app_state.state["logged_in"] = True
         self.connection.connect_host = connect_host
         self.user_credentials = user_credentials
-        if self.app_state.state["mailbox_set"] and self.mail_details.protocol == "IMAP":
-            self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
-            self.connection.mailbox_details = self.mailbox_details
+        # if self.mailbox_details and self.mail_details.protocol == "IMAP":
+        #     self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
+        #     self.connection.mailbox_details = self.mailbox_details
+        #     self.onMailboxSelectionSuccess(self.mailbox_details.chosen_mailbox)
         self.refreshUi()
 
     def onMailboxSelectionSuccess(self, mailbox):
         if mailbox.strip() != "":
-            self.connection.connect_host.select(mailbox)
+            # self.connection.connect_host.select(mailbox)
             self.app_state.state["mailbox_set"] = True
         else:
             self.app_state.state["mailbox_set"] = False
@@ -1608,17 +1604,34 @@ class MailConnectionWindow(TemplateWindow):
     def submit(self):
         self.connection_status.set("Łączenie...")
         self.window.update_idletasks()
-        mail_details = MailDetails()
-        if mail_details.setDetails(address=self.address.get(),
-                                   port=self.port.get(),
-                                   protocol=self.protocol.get()):
-            if self.connection.connect(mail_details):
-                self.window_close()
-                showinfo("Połączenie",
-                         f"Połączono:\nAdres: {self.address.get()}\nPort: {self.port.get()}\nProtokół: {self.protocol.get()}")
-                self.onConnectionSuccess(mail_details)
-        self.connection_status.set("")
-        self.window.update_idletasks()
+        try:
+            mail_details = MailDetails()
+            if mail_details.setDetails(address=self.address.get(),
+                                       port=self.port.get(),
+                                       protocol=self.protocol.get()):
+                if self.connection.connect(mail_details):
+                    self.window_close()
+                    showinfo("Połączenie",
+                             f"Połączono:\nAdres: {self.address.get()}\nPort: {self.port.get()}\nProtokół: {self.protocol.get()}")
+                    self.onConnectionSuccess(mail_details)
+            self.connection_status.set("")
+            self.window.update_idletasks()
+
+        except (socket.gaierror, OSError):
+            showerror("Błąd", "Błąd połączenia.\nSprawdź połączenie internetowe i dostępność serwera.",
+                      parent=self.window)
+            self.connection_status.set("")
+            return False
+        except TimeoutError:
+            showerror("Błąd",
+                      "Przekroczono limit czasu połączenia. Otrzymano błędny port lub usługa jest chwilowo niedostępna",
+                      parent=self.window)
+            self.connection_status.set("")
+            return False
+        except Exception as e:
+            self.connection_status.set("")
+            showerror("Błąd", f"\n{e}", parent=self.window)
+            exit()
 
 
 class LoginWindow(TemplateWindow):
@@ -1689,7 +1702,8 @@ class LoginWindow(TemplateWindow):
                 poplib.error_proto) as e:
 
             if "Authentication failed" in str(e):
-                showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później")
+                showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później",
+                          parent=self.window)
                 self.login_status.set("")
                 self.window.update_idletasks()
             elif self.connection.check_connection_info(self.window, self.app_state):
@@ -1892,7 +1906,6 @@ class DateWindow(TemplateWindow):
 
     def updateDate(self, event=None):
         self.one_date_label.config(text=self.calendar_one_date.get_date())
-        # print(datetime.datetime.strptime(self.calendar_one_date.get_date(), '%d-%m-%Y').date() == datetime.datetime.today().date())
 
     def updateWindow(self):
         timestamp = self.timestamp.get()
@@ -1941,6 +1954,7 @@ class SavePathWindow(TemplateWindow):
         self.insert_frame = ttk.Frame(self.window)
         self.insert_field_frame = ttk.Frame(self.insert_frame)
         self.insert_symbol_frame = ttk.Frame(self.insert_frame)
+        self.input_frame = ttk.Frame(self.window)
 
         self.onPathSetSuccess = onPathSetSuccess
         self.file_save_path: FileSavePath = file_save_path
@@ -1988,10 +2002,14 @@ class SavePathWindow(TemplateWindow):
             button.bind("<Button-1>", self.insert_symbol)
             self.symbol_buttons.append(button)
 
-        self.path_entry = ttk.Entry(self.window,
-                                    width=80,
+        self.path_entry = ttk.Entry(self.input_frame,
+                                    width=86,
                                     textvariable=self.path_var)
 
+        self.clear_button = ttk.Button(self.input_frame,
+                                       text="Wyczyść",
+                                       command=self.clear
+                                       )
         self.path_entry.bind("<KeyRelease>", self.on_text_change)
 
         self.preview_label = ttk.Label(self.window, text="Podgląd:")
@@ -2014,13 +2032,15 @@ class SavePathWindow(TemplateWindow):
         self.insert_field_frame.grid(row=0, column=0, columnspan=2, sticky="w")
         self.insert_symbol_frame.grid(row=0, column=2, columnspan=4, padx=(15, 0), sticky="w")
 
-        for i, symbol_button in enumerate(self.symbol_buttons):
-            symbol_button.grid(row=0, column=i, padx=10, pady=5, sticky="w")
-
         self.insert_combo.grid(row=0, column=0, padx=5, pady=5, )
         self.insert_button.grid(row=0, column=1, padx=5, pady=5, )
 
-        self.path_entry.grid(row=2, column=0, columnspan=10, padx=10, pady=5, sticky="ew")
+        for i, symbol_button in enumerate(self.symbol_buttons):
+            symbol_button.grid(row=0, column=i, padx=10, pady=5, sticky="w")
+
+        self.input_frame.grid(row=2, column=0, columnspan=3, sticky="w")
+        self.path_entry.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        self.clear_button.grid(row=0, column=1, padx=(5, 0), pady=5, sticky="w")
 
         self.preview_label.grid(row=3, column=0, padx=10, pady=(10, 0), sticky="w")
         self.preview_value.grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 5), sticky="w")
@@ -2053,6 +2073,10 @@ class SavePathWindow(TemplateWindow):
             symbol = " "
         cursor_position = self.path_entry.index(tk.INSERT)
         self.path_entry.insert(cursor_position, f"{symbol}")
+        self.on_text_change()
+
+    def clear(self):
+        self.path_entry.delete(0, tk.END)
         self.on_text_change()
 
     def on_text_change(self, event=None):
