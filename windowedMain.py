@@ -31,7 +31,6 @@ from tkinter.filedialog import askopenfilename, asksaveasfilename, askdirectory
 
 from tkcalendar import Calendar
 
-
 # =========================
 # APLIKACJA
 # =========================
@@ -63,7 +62,6 @@ class App:
     def run(self):
         self.root.mainloop()
 
-
 # =========================
 # STAN APLIKACJI
 # =========================
@@ -86,7 +84,6 @@ class AppState:
     def checkAppStatus(self):
         return all(self.state.values())
 
-
 # =========================
 # LOGIKA
 # =========================
@@ -103,7 +100,7 @@ class Config:
         self.date_list = []
         self.save_location = ""
         self.save_method = ""
-        self.filter_text = "699"
+        self.filter_text = ""
 
     def clearConfig(self):
         for key in list(self.__dict__.keys()):
@@ -144,8 +141,6 @@ class Config:
                     app.app_state.state["logged_in"] = True
 
         if self.chosen_mailbox:
-            if not app.mailbox_details:
-                app.mailbox_details = MailboxDetails()
             app.mailbox_details.setFromConfig(self.chosen_mailbox)
             app.mailbox_text.config(text=self.chosen_mailbox)
             app.app_state.state["mailbox_set"] = True
@@ -181,10 +176,13 @@ class Config:
             config_params.update({"address": app.mail_details.address,
                                   "port": app.mail_details.port,
                                   "protocol": app.mail_details.protocol})
-        if "credentials" in active_keys and app.user_credentials:
-            username, password = self.encryptCredentials(app.user_credentials.username, app.user_credentials.password)
-            config_params.update({"username": username.decode('utf-8'),
-                                  "password": password.decode('utf-8')})
+        if "credentials" in active_keys:
+            username, password = ["",""]
+            if app.user_credentials.username and app.user_credentials.password:
+                username,password = self.encryptCredentials(app.user_credentials.username, app.user_credentials.password)
+
+            config_params.update({"username": username,
+                                  "password": password})
         if "mailbox" in active_keys:
             config_params["chosen_mailbox"] = app.mailbox_details.chosen_mailbox
         if "user_file" in active_keys:
@@ -195,15 +193,14 @@ class Config:
             config_params.update({"date_range": app.date.date_range, "date_list": app.date.date_list})
         if "save_method" in active_keys:
             config_params["save_method"] = app.file_save_path.save_method
-        if "filter" in active_keys and app.subject_filter:
+        if "filter" in active_keys:
             config_params["filter_text"] = app.subject_filter.filter_text
 
         if config_params:
             self.saveParameters(config_params, save_location)
 
     def createEncryptionKey(self):
-        unique_machine_info = f"{str(platform.machine())} {str(platform.node())} {str(platform.processor())} {str(platform.system())}".encode(
-            'utf-8')
+        unique_machine_info = f"{str(platform.machine())} {str(platform.node())} {str(platform.processor())} {str(platform.system())}".encode('utf-8')
         key = base64.urlsafe_b64encode(hashlib.sha256(unique_machine_info).digest())
         return Fernet(key)
 
@@ -211,13 +208,12 @@ class Config:
         encryption_key = self.createEncryptionKey()
         encrypted_username = encryption_key.encrypt(username.encode('utf-8'))
         encrypted_password = encryption_key.encrypt(password.encode('utf-8'))
-        return [encrypted_username, encrypted_password]
+        return [encrypted_username.decode('utf-8'),encrypted_password.decode('utf-8')]
 
     def decryptCredentials(self):
         encryption_key = self.createEncryptionKey()
         self.username = encryption_key.decrypt(self.username).decode('utf-8')
         self.password = encryption_key.decrypt(self.password).decode('utf-8')
-
 
 class Connection:
     def __init__(self):
@@ -298,7 +294,7 @@ class Connection:
             return True
         return False
 
-    def check_connection_info(self, window, app_state, flag=None):
+    def check_connection_info(self, window, app_state, flag = None):
         if flag == "inactivity":
             condition = askretrycancel("Połączenie", "Zostałeś wylogowany. Połączyć ponownie?", parent=window)
         else:
@@ -372,7 +368,7 @@ class Connection:
 
 
 class MailDetails:
-    def __init__(self, address="", port=None, protocol=""):
+    def __init__(self, address="", port=0, protocol=""):
         self.address = address.lower()
         self.port = port
         self.protocol = protocol
@@ -688,7 +684,6 @@ class Download:
 
                 f.write("\n")
 
-
 class FileSavePath:
     def __init__(self):
         self.save_location = ""
@@ -766,9 +761,8 @@ class FileSavePath:
         self.full_save_path = self.save_location + "/" + self.save_method_for_user + "/"
 
     def addUserInfo(self, user_info, message_datetime):
-        self.save_method_for_user = self.replaceText(self.save_method, user_info, message_datetime)
+        self.save_method_for_user = self.replaceText(self.save_method,user_info,message_datetime)
         self.makeSavePath()
-
 
 class Filter:
     def __init__(self):
@@ -784,7 +778,6 @@ class Filter:
             if text in subject:
                 return True
         return False
-
 
 class User:
     username: str
@@ -812,7 +805,6 @@ class User:
             "specjalizacja": specialization,
             "indeks": index
         }
-
 
 class UserFile:
     def __init__(self):
@@ -920,7 +912,6 @@ class UserFile:
                     continue
         return [False]
 
-
 class Date:
     # one_day
     # from_to
@@ -973,7 +964,6 @@ class Date:
             for date in date_list
         ]
 
-
 class UserCredentials:
     def __init__(self, username="", password=""):
         self.username = username
@@ -997,7 +987,6 @@ class UserCredentials:
             return False
         else:
             return True
-
 
 # =========================
 # OKNA
@@ -1026,7 +1015,9 @@ class MainWindow:
         self.user_file: UserFile = user_file
         self.date: Date = date
         self.file_save_path: FileSavePath = file_save_path
-        self.filter = None
+
+        self.user_credentials = UserCredentials()
+        self.subject_filter = Filter()
 
         self.login_opened = False
         self.mail_connection_opened = False
@@ -1038,8 +1029,6 @@ class MainWindow:
 
         self.download_flag = 0
 
-        self.user_credentials = None
-        self.subject_filter = None
         self.build()
         self.placeWidgets()
 
@@ -1049,21 +1038,15 @@ class MainWindow:
 
         self.load_config_button = ttk.Button(self.master, text="Wczytaj konfigurację", command=self.openLoadConfig)
         self.mail_connection_button = ttk.Button(self.master, text="Połącz z pocztą", command=self.manageConnection)
-        self.login_button = ttk.Button(self.master, text="Zaloguj do poczty", command=self.manageLogin,
-                                       state=tk.DISABLED)
-        self.mailbox_button = ttk.Button(self.master, text="Wybierz skrzynkę", command=self.openMailboxSelection,
-                                         state=tk.DISABLED)
-        self.user_file_button = ttk.Button(self.master, text="Wczytaj plik z użytkownikami",
-                                           command=self.getUserFileLocation)
-        self.file_save_location_button = ttk.Button(self.master, text="Wybierz lokalizację zapisu",
-                                                    command=self.getFileSaveLocation)
+        self.login_button = ttk.Button(self.master, text="Zaloguj do poczty", command=self.manageLogin,state=tk.DISABLED)
+        self.mailbox_button = ttk.Button(self.master, text="Wybierz skrzynkę", command=self.openMailboxSelection,state=tk.DISABLED)
+        self.user_file_button = ttk.Button(self.master, text="Wczytaj plik z użytkownikami",command=self.getUserFileLocation)
+        self.file_save_location_button = ttk.Button(self.master, text="Wybierz lokalizację zapisu",command=self.getFileSaveLocation)
         self.set_date_button = ttk.Button(self.master, text="Wybierz zakres czasu", command=self.openDateSettings)
         self.set_save_path_button = ttk.Button(self.master, text="Wybierz sposób zapisu", command=self.openSavePath)
         self.filter_button = ttk.Button(self.master, text="Dodaj filtr", command=self.openFilter)
-        self.download_button = ttk.Button(self.master, text="Pobierz załączniki", command=self.downloadAttachments,
-                                          state=tk.DISABLED)
-        self.save_config_button = ttk.Button(self.master, text="Zapisz konfigurację", command=self.saveConfig,
-                                             state=tk.DISABLED)
+        self.download_button = ttk.Button(self.master, text="Pobierz załączniki", command=self.downloadAttachments,state=tk.DISABLED)
+        self.save_config_button = ttk.Button(self.master, text="Zapisz konfigurację", command=self.saveConfig)
 
         self.config_label = ttk.Label(self.master, text="Konfiguracja: ")
         self.connection_label = ttk.Label(self.master, text="Poczta: ")
@@ -1202,14 +1185,6 @@ class MainWindow:
         self.date = Date()
         self.subject_filter = Filter()
 
-        # self.user_file.user_file_location = ""
-        # self.user_file.users_class_list = []
-        # self.date.date_list = []
-        # self.date.date_range = ""
-        # self.file_save_path.save_location = ""
-        # self.file_save_path.save_method = ""
-        # self.subject_filter = None
-
         self.config_text.config(text="")
         self.refreshUi()
 
@@ -1248,8 +1223,8 @@ class MainWindow:
 
     def disconnectMail(self, flag=0):
         self.connection.disconnect()
-        self.user_credentials = None
-        self.mailbox_details = None
+        self.user_credentials = UserCredentials()
+        self.mailbox_details = MailboxDetails()
         self.app_state.state["mail_connected"] = False
         self.app_state.state["logged_in"] = False
         self.app_state.state["mailbox_set"] = False
@@ -1259,6 +1234,7 @@ class MainWindow:
             self.connection_text.config(text="")
             showinfo("Połączenie", "Rozłączono z pocztą")
         self.refreshUi()
+
 
     def logoutMail(self):
         self.disconnectMail(flag=1)
@@ -1274,8 +1250,6 @@ class MainWindow:
     def openMailboxSelection(self):
         if not self.mailbox_selection_opened:
             self.mailbox_selection_opened = True
-            if not self.mailbox_details:
-                self.mailbox_details = MailboxDetails()
             MailboxSelectionWindow(self.master,
                                    self.connection,
                                    self.mailbox_details,
@@ -1331,7 +1305,7 @@ class MainWindow:
     def saveConfig(self):
         if not self.save_config_opened:
             self.save_config_opened = True
-            SaveConfigWindow(self.master, onClose=self.changeWindowStatus, onConfigSave=self.onConfigSave)
+            SaveConfigWindow(self.master, onClose=self.changeWindowStatus, onConfigSave = self.onConfigSave)
         else:
             showerror("Błąd", "Okno jest już otwarte")
 
@@ -1461,10 +1435,8 @@ class MainWindow:
 
         if self.app_state.checkAppStatus():
             self.download_button.config(state=tk.NORMAL)
-            self.save_config_button.config(state=tk.NORMAL)
         else:
             self.download_button.config(state=tk.DISABLED)
-            self.save_config_button.config(state=tk.DISABLED)
         print(self.app_state.state)
 
         self.master.geometry("")
@@ -1473,20 +1445,18 @@ class MainWindow:
         self.app_state.state["mail_connected"] = True
         self.mail_details = mail_details
         if self.mail_details.protocol == "POP3":
+            self.mailbox_details.chosen_mailbox = "INBOX"
             self.app_state.state["mailbox_set"] = True
-        if self.user_credentials:
+        if self.user_credentials.username and self.user_credentials.password:
             if self.connection.auth(self.user_credentials):
-                self.onLoginSuccess(self.connection.connect_host, self.user_credentials)
+                self.onLoginSuccess(self.connection.connect_host,self.user_credentials)
         self.refreshUi()
 
     def onLoginSuccess(self, connect_host, user_credentials):
         self.app_state.state["logged_in"] = True
         self.connection.connect_host = connect_host
         self.user_credentials = user_credentials
-        # if self.mailbox_details and self.mail_details.protocol == "IMAP":
-        #     self.connection.connect_host.select(self.mailbox_details.chosen_mailbox)
-        #     self.connection.mailbox_details = self.mailbox_details
-        #     self.onMailboxSelectionSuccess(self.mailbox_details.chosen_mailbox)
+
         self.refreshUi()
 
     def onMailboxSelectionSuccess(self, mailbox):
@@ -1607,8 +1577,8 @@ class MailConnectionWindow(TemplateWindow):
         try:
             mail_details = MailDetails()
             if mail_details.setDetails(address=self.address.get(),
-                                       port=self.port.get(),
-                                       protocol=self.protocol.get()):
+                                         port=self.port.get(),
+                                         protocol=self.protocol.get()):
                 if self.connection.connect(mail_details):
                     self.window_close()
                     showinfo("Połączenie",
@@ -1618,21 +1588,18 @@ class MailConnectionWindow(TemplateWindow):
             self.window.update_idletasks()
 
         except (socket.gaierror, OSError):
-            showerror("Błąd", "Błąd połączenia.\nSprawdź połączenie internetowe i dostępność serwera.",
-                      parent=self.window)
+            showerror("Błąd", "Błąd połączenia.\nSprawdź połączenie internetowe i dostępność serwera.", parent = self.window)
             self.connection_status.set("")
             return False
         except TimeoutError:
             showerror("Błąd",
-                      "Przekroczono limit czasu połączenia. Otrzymano błędny port lub usługa jest chwilowo niedostępna",
-                      parent=self.window)
+                      "Przekroczono limit czasu połączenia. Otrzymano błędny port lub usługa jest chwilowo niedostępna", parent = self.window)
             self.connection_status.set("")
             return False
         except Exception as e:
             self.connection_status.set("")
-            showerror("Błąd", f"\n{e}", parent=self.window)
+            showerror("Błąd", f"\n{e}", parent = self.window)
             exit()
-
 
 class LoginWindow(TemplateWindow):
     def __init__(self, master,
@@ -1702,8 +1669,7 @@ class LoginWindow(TemplateWindow):
                 poplib.error_proto) as e:
 
             if "Authentication failed" in str(e):
-                showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później",
-                          parent=self.window)
+                showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później", parent=self.window)
                 self.login_status.set("")
                 self.window.update_idletasks()
             elif self.connection.check_connection_info(self.window, self.app_state):
@@ -1775,6 +1741,7 @@ class MailboxSelectionWindow(TemplateWindow):
         except Exception as e:
             print(e)
             pass
+
 
     def saveMailbox(self):
         chosen_mailbox = self.mailbox_choice.get()
@@ -2038,9 +2005,9 @@ class SavePathWindow(TemplateWindow):
         for i, symbol_button in enumerate(self.symbol_buttons):
             symbol_button.grid(row=0, column=i, padx=10, pady=5, sticky="w")
 
-        self.input_frame.grid(row=2, column=0, columnspan=3, sticky="w")
+        self.input_frame.grid(row=2,column=0, columnspan=3, sticky="w")
         self.path_entry.grid(row=0, column=0, padx=10, pady=5, sticky="w")
-        self.clear_button.grid(row=0, column=1, padx=(5, 0), pady=5, sticky="w")
+        self.clear_button.grid(row=0, column=1, padx=(5,0), pady=5, sticky="w")
 
         self.preview_label.grid(row=3, column=0, padx=10, pady=(10, 0), sticky="w")
         self.preview_value.grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 5), sticky="w")
@@ -2146,9 +2113,9 @@ class FilterWindow(TemplateWindow):
                                       textvariable=self.filter_var)
 
         self.clear_button = ttk.Button(self.input_frame,
-                                       text="Wyczyść",
-                                       command=self.clear
-                                       )
+                                      text="Wyczyść",
+                                      command=self.clear
+                                      )
 
         self.save_button = ttk.Button(self.window,
                                       text="Zapisz",
@@ -2157,10 +2124,10 @@ class FilterWindow(TemplateWindow):
 
     def placeWidgets(self):
         self.window.geometry("550x120")
-        self.input_frame.grid(row=1, column=0, columnspan=3, sticky="w")
+        self.input_frame.grid(row=1,column=0, columnspan=3, sticky="w")
         self.info_label.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 5), sticky="w")
         self.filter_input.grid(row=0, column=0, columnspan=2, padx=10, sticky="w")
-        self.clear_button.grid(row=0, column=3, padx=(5, 0), pady=5, sticky="w")
+        self.clear_button.grid(row=0, column=3, padx=(5,0), pady=5, sticky="w")
         self.save_button.grid(row=2, column=0, padx=10, pady=5, sticky="w")
 
     def setDefault(self):
@@ -2175,7 +2142,6 @@ class FilterWindow(TemplateWindow):
         self.subject_filter.readFilter(self.filter_input.get())
         self.window_close()
         self.onFilterSet()
-
 
 class SaveConfigWindow(TemplateWindow):
     def __init__(self, master, onClose, onConfigSave):
@@ -2193,8 +2159,8 @@ class SaveConfigWindow(TemplateWindow):
             "filter"
         ]
         self.texts = [
-            "addres, port, protokół",
-            "nazwa użytkownika i hasło",
+            "adres, port, protokół",
+            "nazwa użytkownika, hasło",
             "skrzynka",
             "plik z użytkownikami",
             "lokalizacja zapisu",
@@ -2217,30 +2183,30 @@ class SaveConfigWindow(TemplateWindow):
             self.checkbuttons.append(check_button)
             self.checkbutton_vars[field] = var
 
+
         self.check_button = ttk.Button(self.button_frame,
-                                       text="Zaznacz wszystko",
-                                       command=self.checkAll
-                                       )
+                                              text="Zaznacz wszystko",
+                                              command=self.checkAll
+                                              )
 
         self.uncheck_button = ttk.Button(self.button_frame,
-                                         text="Odznacz wszystko",
-                                         command=self.uncheckAll
-                                         )
+                                              text="Odznacz wszystko",
+                                              command=self.uncheckAll
+                                              )
 
         self.save_button = ttk.Button(self.window,
                                       text="Zapisz",
                                       command=self.save
                                       )
-
     def placeWidgets(self):
         self.info_label.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 5), sticky="w")
         self.button_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=(5, 5), sticky="w")
-        self.check_button.grid(row=0, column=0, padx=(0, 15), sticky="w")
+        self.check_button.grid(row=0, column=0, padx=(0,15), sticky="w")
         self.uncheck_button.grid(row=0, column=1, sticky="w")
         for i, checkbox in enumerate(self.checkbuttons):
-            checkbox.grid(row=i + 2, column=0, padx=10, pady=5, sticky="w")
+            checkbox.grid(row = i+2, column = 0, padx=10,pady=5, sticky="w")
 
-        self.save_button.grid(row=len(self.fields) + 3, column=0, padx=10, pady=(15, 10), sticky="w")
+        self.save_button.grid(row=len(self.fields)+3, column=0, padx=10, pady=(15,10), sticky="w")
         self.window.geometry("")
 
     def checkAll(self):
@@ -2255,7 +2221,6 @@ class SaveConfigWindow(TemplateWindow):
         self.window_close()
         self.onConfigSave(self.checkbutton_vars)
         return True
-
 
 class TempWindow:
     def __init__(self, master, title, text):
