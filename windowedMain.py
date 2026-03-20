@@ -1044,7 +1044,7 @@ class MainWindow:
         self.file_save_location_button = ttk.Button(self.master, text="Wybierz lokalizację zapisu",command=self.getFileSaveLocation)
         self.set_date_button = ttk.Button(self.master, text="Wybierz zakres czasu", command=self.openDateSettings)
         self.set_save_path_button = ttk.Button(self.master, text="Wybierz sposób zapisu", command=self.openSavePath)
-        self.filter_button = ttk.Button(self.master, text="Dodaj filtr", command=self.openFilter)
+        self.filter_button = ttk.Button(self.master, text="Dodaj filtr tematu", command=self.openFilter)
         self.download_button = ttk.Button(self.master, text="Pobierz załączniki", command=self.downloadAttachments,state=tk.DISABLED)
         self.save_config_button = ttk.Button(self.master, text="Zapisz konfigurację", command=self.saveConfig)
 
@@ -1056,7 +1056,7 @@ class MainWindow:
         self.file_save_label = ttk.Label(self.master, text="Lokalizacja zapisu: ")
         self.date_label = ttk.Label(self.master, text="Zakres czasu: ")
         self.save_path_label = ttk.Label(self.master, text="Sposób zapisu: ")
-        self.filter_label = ttk.Label(self.master, text="Filtr: ")
+        self.filter_label = ttk.Label(self.master, text="Filtr tematu: ")
         self.save_config_label = ttk.Label(self.master, text="Zapisany plik: ")
 
         self.config_text = ttk.Label(self.master)
@@ -2166,7 +2166,7 @@ class SaveConfigWindow(TemplateWindow):
             "lokalizacja zapisu",
             "zakres czasu",
             "sposób zapisu",
-            "filtr"
+            "filtr tematu"
         ]
         self.checkbuttons = []
         self.checkbutton_vars = {}
