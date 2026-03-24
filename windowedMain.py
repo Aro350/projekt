@@ -102,6 +102,7 @@ class Config:
         self.save_location = ""
         self.save_method = ""
         self.filter_text = ""
+        self.save_config_choice = {}
 
     def clearConfig(self):
         for key in list(self.__dict__.keys()):
@@ -170,6 +171,12 @@ class Config:
             app.subject_filter.readFilter(self.filter_text)
             app.onFilterSet()
 
+        if self.save_config_choice:
+            for key,status in self.save_config_choice.items():
+                var = tk.BooleanVar(value=status)
+                self.save_config_choice[key] = var
+            app.save_config_choice = self.save_config_choice
+
     def save_selected_config(self, active_keys, app, save_location):
         config_params = {}
 
@@ -197,6 +204,11 @@ class Config:
         if "filter" in active_keys:
             config_params["filter_text"] = app.subject_filter.filter_text
 
+        temp = app.save_config_choice.copy()
+        for key, value in app.save_config_choice.items():
+            temp[key] = value.get()
+
+        config_params["save_config_choice"] = temp
         if config_params:
             self.saveParameters(config_params, save_location)
 
@@ -1235,6 +1247,7 @@ class MainWindow:
         self.login_text.config(text="")
         self.mailbox_text.config(text="")
         if flag == 0:
+            self.mail_details = MailDetails()
             self.connection_text.config(text="")
             showinfo("Połączenie", "Rozłączono z pocztą")
         self.refreshUi()
@@ -1309,6 +1322,7 @@ class MainWindow:
     def saveConfig(self):
         if not self.save_config_opened:
             self.save_config_opened = True
+            print(self.mail_details)
             SaveConfigWindow(self.master,self.save_config_choice, onClose=self.changeWindowStatus, onConfigSave = self.onConfigSave)
         else:
             showerror("Błąd", "Okno jest już otwarte")
@@ -1497,7 +1511,6 @@ class MainWindow:
         if config_save_location:
             self.config.save_selected_config(active_keys, self, config_save_location)
             self.save_config_text.config(text=config_save_location)
-
 
 # =========================
 # OKNO LOGOWANIA
@@ -1919,7 +1932,6 @@ class DateWindow(TemplateWindow):
             self.window_close()
             self.onDateSetSuccess()
 
-
 class SavePathWindow(TemplateWindow):
     def __init__(self, master, file_save_path, onClose, onPathSetSuccess):
         super().__init__(master, "Ścieżka zapisu", "save_path", onClose)
@@ -2097,7 +2109,6 @@ class SavePathWindow(TemplateWindow):
         self.window_close()
         self.onPathSetSuccess()
 
-
 class FilterWindow(TemplateWindow):
     def __init__(self, master, subject_filter, onClose, onFilterSet):
         super().__init__(master, "Filtrowanie", "filter", onClose)
@@ -2251,7 +2262,6 @@ class TempWindow:
     def changeContent(self, text):
         self.text_label.config(text=text)
         self.temp_window.update()
-
 
 # =========================
 # START
