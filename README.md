@@ -1,17 +1,18 @@
 ## Opis programu
-Program służy do automatycznego pobierania załączników z wiadomości e-mail na podstawie listy użytkowników zawartej w pliku programu Excel.
-Pozwala w prosty sposób określić zakres dat, wybrać grupę użytkowników, a następnie zapisać wszystkie ich załączniki w przypisanych katalogach.
-
-Projekt został zaprojektowany jako skrypt konsolowy w Pythonie z dodatkiem interaktywnych okien pozwalających na wybieranie plików, zamiast wpisywania całych ścieżek ręcznie.
+Program z interfejsem graficznym zaprojektowanym w Tkinterze służący do automatycznego pobierania załączników z wiadomości e-mail na podstawie listy użytkowników zawartej w pliku programu Excel.
+Łączy się z pocztą przez protokoły IMAP lub POP3 i filtruje wiadomości na podstawie użytkowników, wybranych dat i tematów. Pobrane pliki są zapisywane w automatycznie tworzonych folderach na podstawie ustalonej przez użytkownika ścieżki, dodatkowo archiwa są automatycznie wypakowywane.
 
 ## Funkcjonalności
 - Logowanie do skrzynki pocztowej wykorzystując POP3 i IMAP z użyciem podanego adresu i portu
 - Możliwość zapisu i wczytania konfiguracji
 - Wybór pliku Excel zawierającego listę użytkowników  
 - Wybór zakresu czasu (np. „dzisiaj”, „od-do”, „od-do dzisiaj”)  
-- Wyszukiwanie wiadomości od wskazanych użytkowników  
+- Wyszukiwanie wiadomości od wskazanych użytkowników
+- Filtrowanie wiadomości na podstawie tematu
 - Pobieranie wszystkich załączników z tych wiadomości  
-- Automatyczne zapisywanie załączników do osobnych folderów  
+- Automatyczne zapisywanie załączników do odpowiednich folderów
+- Automatyczne wypakowywanie archiwów
+- Odnowienie połączenia z pocztą w przypadku jego utraty
 - Zarządzanie błędami
 
 ## Wymagania
