@@ -37,6 +37,7 @@ from tkcalendar import Calendar
 class App:
     def __init__(self):
         self.root = tk.Tk()
+        self.root.minsize(640,460)
         self.root.title("Aplikacja pocztowa")
         self.app_state = AppState()
         self.connection = Connection()
@@ -1019,6 +1020,8 @@ class MainWindow:
         self.user_credentials = UserCredentials()
         self.subject_filter = Filter()
 
+        self.save_config_choice = {}
+
         self.login_opened = False
         self.mail_connection_opened = False
         self.mailbox_selection_opened = False
@@ -1071,7 +1074,8 @@ class MainWindow:
         self.save_config_text = ttk.Label(self.master)
 
     def placeWidgets(self):
-        self.master.geometry("700x460")
+        #700x460
+        self.master.geometry("")
         self.master.grid_columnconfigure(0, weight=0)
         self.master.grid_columnconfigure(1, weight=0)
         self.master.grid_columnconfigure(2, weight=1)
@@ -1126,7 +1130,7 @@ class MainWindow:
         for i, text in enumerate(self.texts):
             text.grid(row=i + 1, column=2, padx=5, pady=7, sticky="w")
             text.config(text="")
-        self.download_button.grid(row=len(buttons) + 3, column=0, columnspan=3, padx=5, pady=(10, 10), sticky="wesn")
+        self.download_button.grid(row=len(buttons) + 3, column=0, columnspan=3, padx=5, pady=(10, 15), sticky="wesn")
         self.download_button.config(width=30)
 
     def changeWindowStatus(self, window):
@@ -1305,7 +1309,7 @@ class MainWindow:
     def saveConfig(self):
         if not self.save_config_opened:
             self.save_config_opened = True
-            SaveConfigWindow(self.master, onClose=self.changeWindowStatus, onConfigSave = self.onConfigSave)
+            SaveConfigWindow(self.master,self.save_config_choice, onClose=self.changeWindowStatus, onConfigSave = self.onConfigSave)
         else:
             showerror("Błąd", "Okno jest już otwarte")
 
@@ -1481,6 +1485,8 @@ class MainWindow:
         self.filter_text.config(text=self.subject_filter.filter_text)
 
     def onConfigSave(self, checkbutton_vars):
+        print(checkbutton_vars)
+        self.save_config_choice = checkbutton_vars
         active_keys = [key for key, var in checkbutton_vars.items() if var.get()]
 
         if not active_keys:
@@ -1542,7 +1548,7 @@ class MailConnectionWindow(TemplateWindow):
         self.address_input.bind("<FocusOut>", self.focus_out)
 
     def placeWidgets(self):
-        self.window.geometry("250x200")
+        self.window.geometry("250x170")
 
         self.imap_radio.grid(row=0, column=0, padx=5, pady=5)
         self.pop_radio.grid(row=0, column=1, padx=5, pady=5)
@@ -1621,22 +1627,22 @@ class LoginWindow(TemplateWindow):
         self.placeWidgets()
 
     def build(self):
-        self.entry_username = ttk.Entry(self.window, textvariable=self.username)
-        self.entry_password = ttk.Entry(self.window, textvariable=self.password, show="*")
+        self.entry_username = ttk.Entry(self.window, textvariable=self.username, width=25)
+        self.entry_password = ttk.Entry(self.window, textvariable=self.password, show="*",width=25)
         self.login_button = ttk.Button(self.window, text="Zaloguj", command=self.submit)
         self.status_label = ttk.Label(self.window, textvariable=self.login_status)
 
     def placeWidgets(self):
-        self.window.geometry("240x160")
+        self.window.geometry("")
 
-        ttk.Label(self.window, text="Login").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Label(self.window, text="Login").grid(row=0, column=0, padx=(5,10), pady=5)
         self.entry_username.grid(row=0, column=1, padx=5, pady=5, sticky="nswe")
 
-        ttk.Label(self.window, text="Hasło").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Label(self.window, text="Hasło").grid(row=1, column=0, padx=(5,10), pady=5)
         self.entry_password.grid(row=1, column=1, padx=5, pady=5, sticky="nswe")
 
         self.login_button.grid(row=3, column=0, columnspan=2, pady=5)
-        self.status_label.grid(row=4, column=0, columnspan=2, pady=5)
+        self.status_label.grid(row=4, column=0, columnspan=2, pady=(5,10))
 
     def submit(self):
         user_credentials = UserCredentials(username=self.username.get().strip(),
@@ -1700,7 +1706,7 @@ class MailboxSelectionWindow(TemplateWindow):
         self.placeWidgets()
 
     def build(self):
-        self.mailbox_choice = ttk.Combobox(self.window)
+        self.mailbox_choice = ttk.Combobox(self.window, width=30)
         self.save_choice = ttk.Button(self.window, text="Zapisz", command=self.saveMailbox)
 
     def placeWidgets(self):
@@ -1991,7 +1997,7 @@ class SavePathWindow(TemplateWindow):
                                       )
 
     def placeWidgets(self):
-        self.window.geometry("750x270")
+        self.window.geometry("640x270")
 
         self.info_label.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 5), sticky="w")
 
@@ -2144,7 +2150,7 @@ class FilterWindow(TemplateWindow):
         self.onFilterSet()
 
 class SaveConfigWindow(TemplateWindow):
-    def __init__(self, master, onClose, onConfigSave):
+    def __init__(self, master, save_config_choice, onClose, onConfigSave):
         super().__init__(master, "Konfiguracja", "save_config", onClose)
         self.button_frame = ttk.Frame(self.window)
         self.onConfigSave = onConfigSave
@@ -2169,7 +2175,7 @@ class SaveConfigWindow(TemplateWindow):
             "filtr tematu"
         ]
         self.checkbuttons = []
-        self.checkbutton_vars = {}
+        self.checkbutton_vars = save_config_choice
         self.window.grab_set()
         self.build()
         self.placeWidgets()
@@ -2178,7 +2184,12 @@ class SaveConfigWindow(TemplateWindow):
         self.info_label = ttk.Label(self.window, text="Wybierz informacje do zapisania w pliku konfiguracyjnym.")
 
         for field, text in zip(self.fields, self.texts):
-            var = tk.BooleanVar()
+            var = tk.BooleanVar(value=self.checkbutton_vars[field].get() if field in self.checkbutton_vars else False)
+            # try:
+            #     if self.checkbutton_vars[field].get():
+            #         var.set(True)
+            # except:
+            #     pass
             check_button = ttk.Checkbutton(self.window, text=text, variable=var)
             self.checkbuttons.append(check_button)
             self.checkbutton_vars[field] = var
