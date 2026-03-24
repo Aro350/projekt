@@ -279,7 +279,6 @@ class Connection:
                 pass
 
         except Exception as e:
-            print(e)
             pass
 
         finally:
@@ -551,7 +550,7 @@ class MailData:
                 download.getAttachment(full_message, self.file_save_path, user, message_datetime)
 
             except Exception as e:
-                print(f"Błąd przy wiadomości {i}: {e}")
+                showwarning("Ostrzeżenie",f"Błąd przy wiadomości {i}: {e}")
                 continue
 
     def dateFilter(self):
@@ -624,7 +623,7 @@ class Download:
         for attachment in message.iter_attachments():
             filename = attachment.get_filename()
             payload = attachment.get_payload(decode=True)
-            print(f"Znaleziono: {filename}")
+            # print(f"Znaleziono: {filename}")
             self.saveAttachments(payload, filename, full_save_path, user)
             if self.ask_log_file:
                 self.add_log(message, user, filename, full_save_path)
@@ -647,7 +646,7 @@ class Download:
                             exist_ok=True)
                 patoolib.extract_archive(archive=str(file_path), outdir=extract_dir)
         except Exception as e:
-            print(f"Błąd zapisu pliku. {e}")
+            showerror("Błąd",f"Błąd zapisu pliku. {e}")
 
     def add_log(self, message, user, filename, full_save_path):
 
@@ -878,7 +877,7 @@ class UserFile:
             return True
 
         except Exception as e:
-            print(e)
+            showerror("Błąd",e)
 
     def findDuplicates(self, users, column_name):
         users_list = users[column_name].tolist()
@@ -1180,7 +1179,6 @@ class MainWindow:
             return True
 
         except Exception as e:
-            print(e)
             showerror("Błąd", f"Plik konfiguracyjny zawiera błąd:\n{e}")
             self.config.clearConfig()
             return False
@@ -1322,7 +1320,6 @@ class MainWindow:
     def saveConfig(self):
         if not self.save_config_opened:
             self.save_config_opened = True
-            print(self.mail_details)
             SaveConfigWindow(self.master,self.save_config_choice, onClose=self.changeWindowStatus, onConfigSave = self.onConfigSave)
         else:
             showerror("Błąd", "Okno jest już otwarte")
@@ -1399,7 +1396,6 @@ class MainWindow:
 
         except Exception as e:
             showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
-            print(e)
 
     def refreshUi(self):
         if self.app_state.state["mail_connected"]:
@@ -1455,7 +1451,6 @@ class MainWindow:
             self.download_button.config(state=tk.NORMAL)
         else:
             self.download_button.config(state=tk.DISABLED)
-        print(self.app_state.state)
 
         self.master.geometry("")
 
@@ -1499,7 +1494,6 @@ class MainWindow:
         self.filter_text.config(text=self.subject_filter.filter_text)
 
     def onConfigSave(self, checkbutton_vars):
-        print(checkbutton_vars)
         self.save_config_choice = checkbutton_vars
         active_keys = [key for key, var in checkbutton_vars.items() if var.get()]
 
@@ -1758,7 +1752,7 @@ class MailboxSelectionWindow(TemplateWindow):
                 return True
             return False
         except Exception as e:
-            print(e)
+            showerror("Błąd",e)
             pass
 
 
@@ -1793,7 +1787,6 @@ class MailboxSelectionWindow(TemplateWindow):
             return False
         except Exception as e:
             showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
-            print(e)
 
 
 class DateWindow(TemplateWindow):
