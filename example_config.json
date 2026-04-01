@@ -1,7 +1,23 @@
 {
     "address": "stud.prz.edu.pl",
+    "port": "993",
     "protocol": "IMAP",
-    "port": 993,
-    "mailbox": "INBOX",
-    "save_method": "{Rok}_{Imie}_{Nazwisko}"
+    "user_file_location": "C:/Users/plpaw/Desktop/Projekt/users.xlsx",
+    "save_location": "C:/Users/plpaw/Desktop/Projekt/ZALACZNIKI",
+    "date_range": "one_day",
+    "date_list": [
+        "08-03-2026"
+    ],
+    "save_method": "{Imie}_{Nazwisko}",
+    "filter_text": "",
+    "save_config_choice": {
+        "mail": true,
+        "credentials": false,
+        "mailbox": false,
+        "user_file": true,
+        "save_location": true,
+        "date": true,
+        "save_method": true,
+        "filter": true
+    }
 }

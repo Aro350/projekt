@@ -129,6 +129,19 @@ class Config:
                 raise ValueError
 
     def loadConfig(self, app):
+        if self.user_file_location:
+            success = app.user_file.convertFileToUsers(self.user_file_location)
+
+            if not success and not app.user_file.email_column and app.selectEmailColumnWindow():
+                success = app.user_file.convertFileToUsers(self.user_file_location)
+
+            if success:
+                app.user_file_text.config(text=self.user_file_location)
+                app.app_state.state["user_file_set"] = True
+                app.onUserFileLoaded()
+            else:
+                raise ValueError("Plik z użytkownikami zawiera błąd.")
+
         if self.address and self.port and self.protocol:
             app.mail_details.setFromConfig(self.address, self.port, self.protocol)
             if app.connection.connect(app.mail_details):
@@ -146,12 +159,6 @@ class Config:
             app.mailbox_details.setFromConfig(self.chosen_mailbox)
             app.mailbox_text.config(text=self.chosen_mailbox)
             app.app_state.state["mailbox_set"] = True
-
-        if self.user_file_location:
-            if app.user_file.convertFileToUsers(self.user_file_location):
-                app.user_file_text.config(text=self.user_file_location)
-                app.app_state.state["user_file_set"] = True
-                app.onUserFileLoaded()
 
         if self.save_location:
             app.file_save_path.save_location = self.save_location
@@ -1148,6 +1155,11 @@ class MainWindow:
             showinfo("Sukces", "Pomyślnie wczytano plik konfiguracyjny.")
             return True
 
+        except ValueError as e:
+            showerror("Błąd", str(e))
+            self.config.clearConfig()
+            return False
+
         except Exception as e:
             showerror("Błąd", f"Plik konfiguracyjny zawiera błąd:\n{type(e)}\n{e}\n{e.__class__.__name__}")
             self.config.clearConfig()
@@ -1259,21 +1271,27 @@ class MainWindow:
 
             if self.user_file.convertFileToUsers(user_file_loc):
                 self.onUserFileLoaded()
-            elif askyesno("Błąd","Nie znaleziono kolumny zawierajacej adres email. \nWybrać kolumnę ręcznie?"):
-                temp_colum_selection = TempWindow(self.master,"Wybór kolumny","Wybierz kolumnę zawierającą adresy/nazwy użytkowników:")
-                temp_colum_selection.addCombobox(self.user_file.column_names)
-                self.master.wait_window(temp_colum_selection.temp_window)
-                chosen_column = temp_colum_selection.selected_value.get()
-                if chosen_column:
-                    self.user_file.email_column = chosen_column
-                    if self.user_file.convertFileToUsers(user_file_loc):
-                        self.onUserFileLoaded()
+            if self.selectEmailColumnWindow() and self.user_file.convertFileToUsers(user_file_loc):
+                self.onUserFileLoaded()
             else:
                 return False
         except ValueError as e:
             showerror("Błąd", f"{e}")
         except Exception as e:
             showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
+
+    def selectEmailColumnWindow(self):
+        self.master.bell()
+        if askyesno("Błąd","Nie znaleziono kolumny zawierajacej adres email. \nWybrać kolumnę ręcznie?"):
+            temp_colum_selection = TempWindow(self.master, "Wybór kolumny",
+                                              "Wybierz kolumnę zawierającą adresy/nazwy użytkowników:")
+            temp_colum_selection.addCombobox(self.user_file.column_names)
+            self.master.wait_window(temp_colum_selection.temp_window)
+            chosen_column = temp_colum_selection.selected_value.get()
+            if chosen_column:
+                self.user_file.email_column = chosen_column
+            return True
+        return False
 
     def onUserFileLoaded(self):
         self.user_file_text.config(text=self.user_file.user_file_location)
