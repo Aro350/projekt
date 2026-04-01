@@ -148,10 +148,10 @@ class Config:
             app.app_state.state["mailbox_set"] = True
 
         if self.user_file_location:
-            if app.user_file.getUsers(self.user_file_location):
+            if app.user_file.convertFileToUsers(self.user_file_location):
                 app.user_file_text.config(text=self.user_file_location)
                 app.app_state.state["user_file_set"] = True
-                app.onUserFileLoaded(self.user_file_location)
+                app.onUserFileLoaded()
 
         if self.save_location:
             app.file_save_path.save_location = self.save_location
