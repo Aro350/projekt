@@ -794,63 +794,59 @@ class User:
 class UserFile:
     def __init__(self):
         self.user_file_location = ""
+        self.data = None
         self.users_list = []
         self.users_class_list: list[User] = []
         self.column_names = []
         self.email_column = ""
 
-    def getUsers(self, user_file_location):
-        if self.setUserFile(user_file_location):
-            if self.convertData():
-                return True
-            showerror("Błąd", "W pliku nie znaleziono adresów email")
-            return False
-        else:
-            return False
-
     def setUserFile(self, user_file_location):
         temp_file_location = user_file_location
         if temp_file_location == "":
-            showwarning("Ostrzeżenie", "Nie wybrano pliku z użytkownikami")
-            return False
+            raise ValueError("Nie wybrano pliku z użytkownikami")
         else:
             self.user_file_location = user_file_location
             return True
 
-    def convertData(self):
-        try:
-            users = pd.read_excel(self.user_file_location)
+    def getDataFromFile(self):
+        # axis 0 = rows
+        # axis 1 = columns
+        data = pd.read_excel(self.user_file_location)
+        data = data.dropna(axis=0, how="all")
+        data = data.dropna(axis=1, how="all")
+        data = data.reset_index(drop=True)
+        data = data.fillna("NONE")
+        if len(data)<=0:
+            raise ValueError("Plik z użytkownikami jest pusty")
+        self.data = data
+        self.normalizeColumns()
+        return True
 
-            # axis 0 = rows
-            # axis 1 = columns
+    def normalizeColumns(self):
+        if "@" not in str(self.data.iloc[0]).lower() and not any(c.isdigit() for c in str(self.data.iloc[0]).lower()):
+            self.data.columns = self.data.iloc[0]
+            self.data = self.data[1:].reset_index(drop=True)
+        self.column_names = self.removeSpecialCharacters(self.data.columns)
+        self.data.columns = self.column_names
+        return True
 
-            users = users.dropna(axis=0, how="all")
+    def getUsers(self):
+        duplicated_users = self.findDuplicates(self.data, self.email_column)
+        duplicated_users_list = ""
+        for key, value in duplicated_users.items():
+            duplicated_users_list += f"Wiersz: {str(key)}, Adres: {str(value)}\n"
+        if len(duplicated_users_list) != 0:
+            showwarning("Ostrzeżenie", f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
+        self.users_list = list(self.data.to_dict("index").values())
 
-            users = users.dropna(axis=1, how="all")
-
-            users = users.reset_index(drop=True)
-            users = users.fillna("NONE")
-            if not self.email_column:
-                if "@" not in str(users.iloc[0]).lower() and not any(c.isdigit() for c in str(users.iloc[0]).lower()):
-                    users.columns = users.iloc[0]
-                    users = users[1:].reset_index(drop=True)
-                self.column_names = self.removeSpecialCharacters(users.columns)
-                users.columns = self.column_names
-                if not self.findEmailColumn(users=users):
-                    return False
-
-            duplicated_users = self.findDuplicates(users, self.email_column)
-            duplicated_users_list = ""
-            for key, value in duplicated_users.items():
-                duplicated_users_list += f"Wiersz: {str(key)}, Adres: {str(value)}\n"
-            if len(duplicated_users_list) != 0:
-                showwarning("Ostrzeżenie", f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
-            self.users_list = list(users.to_dict("index").values())
-            self.convertUsers()
-            return True
-
-        except Exception as e:
-            showerror("Błąd",str(e))
+    def convertFileToUsers(self, user_file_location):
+        self.setUserFile(user_file_location)
+        self.getDataFromFile()
+        if not self.email_column and not self.findEmailColumn():
+            return False
+        self.getUsers()
+        self.convertUsers()
+        return True
 
     def removeSpecialCharacters(self, column_names):
         characters = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
@@ -886,18 +882,17 @@ class UserFile:
                 continue
         return True
 
-    def findEmailColumn(self, columns = None, users:pd.DataFrame = None):
+    def findEmailColumn(self):
         if self.column_names:
-            columns = self.column_names
-        for column_name in columns:
-            for item in users[column_name].head(5):
-                try:
-                    if "@" in str(item) or column_name.lower() in ['email','e-mail']:
-                        self.email_column = column_name
-                        return True
-                except Exception:
-                    continue
-        return False
+            for column_name in self.column_names:
+                for item in self.data[column_name].head(5):
+                    try:
+                        if "@" in str(item) or column_name.lower() in ['email','e-mail']:
+                            self.email_column = column_name
+                            return True
+                    except Exception:
+                        continue
+            return False
 
 class Date:
     # one_day
@@ -1256,29 +1251,34 @@ class MainWindow:
             showerror("Błąd", "Okno jest już otwarte")
 
     def getUserFileLocation(self):
-        user_file_loc = askopenfilename(title="Wybierz plik Excel z użytkownikami",
-                                        filetypes=[("Excel files", "*.xlsx *.xls")])
-        if not user_file_loc:
-            return False
+        try:
+            user_file_loc = askopenfilename(title="Wybierz plik Excel z użytkownikami",
+                                            filetypes=[("Excel files", "*.xlsx *.xls")])
+            if not user_file_loc:
+                return False
 
-        if self.user_file.getUsers(user_file_loc):
-            self.onUserFileLoaded(user_file_loc)
-        elif askyesno("Błąd","Nie znaleziono kolumny zawierajacej adres email. \nWybrać kolumnę ręcznie?"):
-            temp_colum_selection = TempWindow(self.master,"Wybór kolumny","Wybierz kolumnę zawierającą adresy/nazwy użytkowników:")
-            temp_colum_selection.addCombobox(self.user_file.column_names)
-            self.master.wait_window(temp_colum_selection.temp_window)
-            chosen_column = temp_colum_selection.selected_value.get()
-            if chosen_column:
-                self.user_file.email_column = chosen_column
-                if self.user_file.convertData():
-                    self.onUserFileLoaded(user_file_loc)
-        else:
-            return False
+            if self.user_file.convertFileToUsers(user_file_loc):
+                self.onUserFileLoaded()
+            elif askyesno("Błąd","Nie znaleziono kolumny zawierajacej adres email. \nWybrać kolumnę ręcznie?"):
+                temp_colum_selection = TempWindow(self.master,"Wybór kolumny","Wybierz kolumnę zawierającą adresy/nazwy użytkowników:")
+                temp_colum_selection.addCombobox(self.user_file.column_names)
+                self.master.wait_window(temp_colum_selection.temp_window)
+                chosen_column = temp_colum_selection.selected_value.get()
+                if chosen_column:
+                    self.user_file.email_column = chosen_column
+                    if self.user_file.convertFileToUsers(user_file_loc):
+                        self.onUserFileLoaded()
+            else:
+                return False
+        except ValueError as e:
+            showerror("Błąd", f"{e}")
+        except Exception as e:
+            showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
 
-    def onUserFileLoaded(self, user_file_loc):
-        self.user_file_text.config(text=user_file_loc)
+    def onUserFileLoaded(self):
+        self.user_file_text.config(text=self.user_file.user_file_location)
         self.app_state.state["user_file_set"] = True
-        self.file_save_path.types = self.user_file.column_names + self.file_save_path.types
+        self.file_save_path.types = self.user_file.column_names + list(self.file_save_path.download_datetime.keys()) + list(self.file_save_path.example_receive_datetime.keys())
         self.file_save_path.types.remove(self.user_file.email_column)
         self.setExampleUser()
         self.set_save_path_button.config(state=tk.NORMAL)
