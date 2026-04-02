@@ -834,6 +834,7 @@ class UserFile:
             self.data.columns = self.data.iloc[0]
             self.data = self.data[1:].reset_index(drop=True)
         self.column_names = self.removeSpecialCharacters(self.data.columns)
+        self.column_names = [x.capitalize() for x in self.column_names]
         self.data.columns = self.column_names
         return True
 
