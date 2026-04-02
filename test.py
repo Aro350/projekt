@@ -165,7 +165,7 @@ class Config:
             app.file_save_text.config(text=f"{self.save_location}/")
             app.app_state.state["save_loc_set"] = True
 
-        if self.save_method:
+        if self.save_method and app.app_state.state["user_file_set"]:
             app.file_save_path.setFromConfig(self.save_method)
             app.app_state.state["save_method_set"] = True
 
@@ -477,16 +477,15 @@ class MailData:
                 self.query = [quotes[index], self.date_list[0].strftime("%d-%b-%Y")]
 
             case "from_to":
-                self.date_list[1] = self.date_list[1] + dt.timedelta(days=1)
-                for date in self.date_list:
-                    self.query += [quotes[index + 1], date.strftime("%d-%b-%Y")]
-                    index += 1
+                query_date_end = self.date_list[1] + dt.timedelta(days=1)
+                self.query = [quotes[1], self.date_list[0].strftime("%d-%b-%Y"),
+                              quotes[2], query_date_end.strftime("%d-%b-%Y")]
             case "from":
                 self.query += [quotes[1], self.date_list[0].strftime("%d-%b-%Y")]
 
             case "to":
-                self.date_list[0] = self.date_list[0] + dt.timedelta(days=1)
-                self.query += [quotes[2], self.date_list[0].strftime("%d-%b-%Y")]
+                query_date = self.date_list[0] + dt.timedelta(days=1)
+                self.query = [quotes[2], query_date.strftime("%d-%b-%Y")]
 
     def getMessage(self, download):
         if self.connection.protocol == "IMAP":
@@ -635,6 +634,17 @@ class Download:
             filename = attachment.get_filename()
             payload = attachment.get_payload(decode=True)
             # print(f"Znaleziono: {filename}")
+
+            if payload is None or filename is None:
+                payload, filename = self.extractPayload(attachment)
+
+            if payload is None:
+                showwarning("Ostrzeżenie", f"Pominięto załącznik '{filename}': nie można odczytać zawartości.")
+                continue
+            if not filename:
+                showwarning("Ostrzeżenie", "Pominięto załącznik bez nazwy pliku.")
+                continue
+
             self.saveAttachments(payload, filename, full_save_path, user)
             if self.ask_log_file:
                 self.add_log(message, user, filename, full_save_path)
@@ -654,12 +664,21 @@ class Download:
                             exist_ok=True)
                 patoolib.extract_archive(archive=str(file_path), outdir=extract_dir)
         except Exception as e:
-            showerror("Błąd",f"Błąd zapisu pliku. {e}")
+            showerror("Błąd",f"Błąd zapisu pliku. {str(e)}")
+
+    def extractPayload(self, attachment):
+        if attachment.is_multipart():
+            for part in attachment.iter_parts():
+                payload, filename = self.extractPayload(part)
+                if payload is not None:
+                    return payload, filename
+            return None, None
+        return attachment.get_payload(decode=True), attachment.get_filename()
 
     def add_log(self, message, user, filename, full_save_path):
 
         date = str(parsedate_to_datetime(message.get("Date")).date())
-        user_name = f"{user.user_info['imie']} {user.user_info['nazwisko']}"
+        user_name = f"{user.username}"
         subject = str(message.get("Subject", "Brak tematu"))
         self.user_count.append(user.username)
         self.message_count.append(f"{message.get('From')}: {message.get('Message-ID')}")
@@ -681,10 +700,10 @@ class Download:
     def save_log(self, log_save_loc):
         today = datetime.datetime.today()
         if log_save_loc == "":
-            log_save_loc = f"dziennik_{today.strftime("%d-%m-%Y_%H-%M-%S")}.txt"
+            log_save_loc = f"dziennik_{today.strftime('%d-%m-%Y_%H-%M-%S')}.txt"
 
         with open(log_save_loc, "w", encoding="utf-8") as f:
-            f.write(f"***** Data utworzenia dziennika: {str(today.strftime("%d-%m-%Y  %H:%M:%S"))} *****\n")
+            f.write(f"***** Data utworzenia dziennika: {str(today.strftime('%d-%m-%Y  %H:%M:%S'))} *****\n")
             self.message_count = len(set(self.message_count))
             self.user_count = len(set(self.user_count))
             f.write(f"Pobrano: {self.attachment_count} załączników\n"
@@ -734,7 +753,7 @@ class FileSavePath:
 
     def setFromConfig(self, save_method):
         self.save_method = save_method
-        if self.save_method != "":
+        if self.save_method != "" and self.example_user is not None:
             self.example_save_text = self.replaceText(save_method,
                                                       self.example_user.user_info,
                                                       self.example_receive_datetime)
@@ -850,7 +869,7 @@ class UserFile:
     def convertFileToUsers(self, user_file_location):
         self.setUserFile(user_file_location)
         self.getDataFromFile()
-        if not self.email_column and not self.findEmailColumn():
+        if not self.findEmailColumn():
             return False
         self.getUsers()
         self.convertUsers()
@@ -884,7 +903,7 @@ class UserFile:
             user[key] = str(value).strip()
             try:
                 if value != value: user[key] = ""
-                if user[self.email_column.lower()] == "": return False
+                if user[self.email_column] == "": return False
                 user[key] = int(float(value))
             except Exception:
                 continue
@@ -1007,7 +1026,7 @@ class MainWindow:
         self.file_save_path: FileSavePath = file_save_path
 
         self.user_credentials = UserCredentials()
-        self.subject_filter = Filter()
+        self.subject_filter = None
 
         self.save_config_choice = {}
 
@@ -1180,7 +1199,7 @@ class MainWindow:
         self.user_file = UserFile()
         self.file_save_path = FileSavePath()
         self.date = Date()
-        self.subject_filter = Filter()
+        self.subject_filter = None
 
         self.config_text.config(text="")
         self.refreshUi()
@@ -1272,7 +1291,7 @@ class MainWindow:
 
             if self.user_file.convertFileToUsers(user_file_loc):
                 self.onUserFileLoaded()
-            if self.selectEmailColumnWindow() and self.user_file.convertFileToUsers(user_file_loc):
+            elif self.selectEmailColumnWindow() and self.user_file.convertFileToUsers(user_file_loc):
                 self.onUserFileLoaded()
             else:
                 return False
@@ -1291,7 +1310,7 @@ class MainWindow:
             chosen_column = temp_colum_selection.selected_value.get()
             if chosen_column:
                 self.user_file.email_column = chosen_column
-            return True
+                return True
         return False
 
     def onUserFileLoaded(self):
@@ -1299,9 +1318,11 @@ class MainWindow:
         self.app_state.state["user_file_set"] = True
         self.file_save_path.types = self.user_file.column_names + list(self.file_save_path.download_datetime.keys()) + list(self.file_save_path.example_receive_datetime.keys())
         self.file_save_path.types.remove(self.user_file.email_column)
+        self.file_save_path.save_method = ""
+        self.file_save_path.save_method_for_user = ""
+        self.file_save_path.example_save_text = ""
         self.setExampleUser()
         self.set_save_path_button.config(state=tk.NORMAL)
-
         self.refreshUi()
 
     def setExampleUser(self):
@@ -1710,7 +1731,7 @@ class LoginWindow(TemplateWindow):
                 self.login_status.set("")
                 self.window.update_idletasks()
 
-            elif "auth failure" or "access disabled":
+            elif "auth failure" in str(e) or "access disabled" in str(e):
                 showerror("Błąd połączenia","Błędne dane logowania\nlub\ndostęp przez wybrany protokół nie jest włączony")
                 self.login_status.set("")
                 self.window.update_idletasks()
@@ -2101,11 +2122,10 @@ class SavePathWindow(TemplateWindow):
             pass
 
         text = self.path_entry.get()
-
-        if "imię" in text.lower():
-            text = re.sub("Imię", "Imie", text, flags=re.IGNORECASE)
-            self.path_entry.delete(0, tk.END)
-            self.path_entry.insert(0, text)
+        characters = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
+        text = text.translate(characters)
+        self.path_entry.delete(0, tk.END)
+        self.path_entry.insert(0, text)
 
         new_text = text
         for word in self.types:
