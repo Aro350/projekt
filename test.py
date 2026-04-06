@@ -108,8 +108,10 @@ class Config:
         for key in list(self.__dict__.keys()):
             if key == "port":
                 self.__dict__[key] = 0
-            elif key == "date_list" or key == "filter":
+            elif key == "date_list":
                 self.__dict__[key] = []
+            elif key == "save_config_choice":
+                self.__dict__[key] = {}
             else:
                 self.__dict__[key] = ""
 
@@ -126,7 +128,7 @@ class Config:
             if hasattr(self, key):
                 setattr(self, key, value)
             else:
-                raise ValueError
+                raise ValueError(f"Nieznany klucz konfiguracji: '{key}'")
 
     def loadConfig(self, app):
         if self.user_file_location:
@@ -210,7 +212,7 @@ class Config:
         if "save_method" in active_keys:
             config_params["save_method"] = app.file_save_path.save_method
         if "filter" in active_keys:
-            config_params["filter_text"] = app.subject_filter.filter_text
+            config_params["filter_text"] = app.subject_filter.filter_text if app.subject_filter else ""
 
         temp = app.save_config_choice.copy()
         for key, value in app.save_config_choice.items():
@@ -470,18 +472,17 @@ class MailData:
     # ---------------------------------------------------------
     def makeQuery(self):
         quotes = ["ON", "SINCE", "BEFORE"]
-        index = 0
 
         match self.date_choice:
             case "one_day":
-                self.query = [quotes[index], self.date_list[0].strftime("%d-%b-%Y")]
+                self.query = [quotes[0], self.date_list[0].strftime("%d-%b-%Y")]
 
             case "from_to":
                 query_date_end = self.date_list[1] + dt.timedelta(days=1)
                 self.query = [quotes[1], self.date_list[0].strftime("%d-%b-%Y"),
                               quotes[2], query_date_end.strftime("%d-%b-%Y")]
             case "from":
-                self.query += [quotes[1], self.date_list[0].strftime("%d-%b-%Y")]
+                self.query = [quotes[1], self.date_list[0].strftime("%d-%b-%Y")]
 
             case "to":
                 query_date = self.date_list[0] + dt.timedelta(days=1)
@@ -584,7 +585,7 @@ class MailData:
 
 class Download:
     def __init__(self, connection, mail_data, users_class_list, subject_filter, ask_log_file):
-        self.connection: Connection = connection.connect_host
+        self.connection = connection.connect_host
         self.mail_data: MailData = mail_data
         self.users_class_list: list[User] = users_class_list
         self.subject_filter: Filter = subject_filter
@@ -639,7 +640,8 @@ class Download:
                 payload, filename = self.extractPayload(attachment)
 
             if payload is None:
-                showwarning("Ostrzeżenie", f"Pominięto załącznik '{filename}': nie można odczytać zawartości.")
+                display_name = filename or "nieznana nazwa"
+                showwarning("Ostrzeżenie", f"Pominięto załącznik '{display_name}': nie można odczytać zawartości.")
                 continue
             if not filename:
                 showwarning("Ostrzeżenie", "Pominięto załącznik bez nazwy pliku.")
@@ -760,6 +762,8 @@ class FileSavePath:
 
     def replaceText(self, raw_text, message_user_info, message_datetime):
         replaced_text = raw_text
+        message_datetime = message_datetime.copy()
+
         if any(time_word.lower() in raw_text.lower() for time_word in message_datetime.keys()):
             message_datetime["data_odbioru"] = message_datetime["data_odbioru"].strftime('%Y-%m-%d') if type(
                 message_datetime["data_odbioru"]) != str else message_datetime["data_odbioru"]
@@ -827,8 +831,7 @@ class UserFile:
         self.email_column = ""
 
     def setUserFile(self, user_file_location):
-        temp_file_location = user_file_location
-        if temp_file_location == "":
+        if user_file_location == "":
             raise ValueError("Nie wybrano pliku z użytkownikami")
         else:
             self.user_file_location = user_file_location
@@ -869,7 +872,7 @@ class UserFile:
     def convertFileToUsers(self, user_file_location):
         self.setUserFile(user_file_location)
         self.getDataFromFile()
-        if not self.findEmailColumn():
+        if not self.email_column and not self.findEmailColumn():
             return False
         self.getUsers()
         self.convertUsers()
@@ -1288,7 +1291,7 @@ class MainWindow:
                                             filetypes=[("Excel files", "*.xlsx *.xls")])
             if not user_file_loc:
                 return False
-
+            self.user_file = UserFile()
             if self.user_file.convertFileToUsers(user_file_loc):
                 self.onUserFileLoaded()
             elif self.selectEmailColumnWindow() and self.user_file.convertFileToUsers(user_file_loc):
@@ -1318,6 +1321,7 @@ class MainWindow:
         self.app_state.state["user_file_set"] = True
         self.file_save_path.types = self.user_file.column_names + list(self.file_save_path.download_datetime.keys()) + list(self.file_save_path.example_receive_datetime.keys())
         self.file_save_path.types.remove(self.user_file.email_column)
+        self.app_state.state["save_method_set"] = False
         self.file_save_path.save_method = ""
         self.file_save_path.save_method_for_user = ""
         self.file_save_path.example_save_text = ""
@@ -1326,7 +1330,7 @@ class MainWindow:
         self.refreshUi()
 
     def setExampleUser(self):
-        self.file_save_path.example_user = ""
+        self.file_save_path.example_user = None
         for user in self.user_file.users_class_list:
             if "NONE" not in user.user_info.values():
                 self.file_save_path.example_user = user
@@ -1411,6 +1415,7 @@ class MainWindow:
             if ask_log_file:
                 download.save_log(log_save_loc)
             showinfo("Gotowe", "Pobieranie zakończone")
+            self.download_flag = 0
             del mail_data
             del download
 
@@ -1536,7 +1541,7 @@ class MainWindow:
         self.refreshUi()
 
     def onFilterSet(self):
-        self.filter_text.config(text=self.subject_filter.filter_text)
+        self.filter_text.config(text=self.subject_filter.filter_text if self.subject_filter else "")
 
     def onConfigSave(self, checkbutton_vars):
         self.save_config_choice = checkbutton_vars
@@ -2118,14 +2123,18 @@ class SavePathWindow(TemplateWindow):
                                                                                  self.file_save_path.example_user.user_info,
                                                                                  self.file_save_path.example_receive_datetime))
                 return
+            if event.state & 0x4:  # ← 0x4 is the Ctrl modifier flag
+                return
         except AttributeError:
             pass
 
         text = self.path_entry.get()
         characters = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
         text = text.translate(characters)
+        cursor_pos = self.path_entry.index(tk.INSERT)
         self.path_entry.delete(0, tk.END)
         self.path_entry.insert(0, text)
+        self.path_entry.icursor(cursor_pos)
 
         new_text = text
         for word in self.types:
