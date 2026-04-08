@@ -254,6 +254,7 @@ class Connection:
             self.connect_host = imaplib.IMAP4_SSL(
                 mail_details.address,
                 mail_details.port)
+            self.connect_host.sock.settimeout(10)
             return True
 
         elif mail_details.protocol == "POP3":
@@ -262,6 +263,8 @@ class Connection:
             self.connect_host = poplib.POP3_SSL(
                 mail_details.address,
                 mail_details.port)
+            self.connect_host.sock.settimeout(10)
+
             return True
         return False
 
@@ -1426,6 +1429,8 @@ class MainWindow:
                 AttributeError,
                 imaplib.IMAP4.error,
                 poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
                 ) as e:
 
             temp_window.closeWindow()
@@ -1647,17 +1652,22 @@ class MailConnectionWindow(TemplateWindow):
                     showinfo("Połączenie",
                              f"Połączono:\nAdres: {self.address.get()}\nPort: {self.port.get()}\nProtokół: {self.protocol.get()}")
                     self.onConnectionSuccess(mail_details)
+            else:
+                self.window.focus_force()
             self.connection_status.set("")
             self.window.update_idletasks()
 
         except (socket.gaierror, OSError):
             showerror("Błąd", "Błąd połączenia.\nSprawdź połączenie internetowe i dostępność serwera.", parent = self.window)
             self.connection_status.set("")
+            self.window.focus_force()
+
             return False
-        except TimeoutError:
+        except (TimeoutError,socket.timeout):
             showerror("Błąd",
                       "Przekroczono limit czasu połączenia. Otrzymano błędny port lub usługa jest chwilowo niedostępna", parent = self.window)
             self.connection_status.set("")
+            self.window.focus_force()
             return False
         except Exception as e:
             self.connection_status.set("")
@@ -1729,7 +1739,10 @@ class LoginWindow(TemplateWindow):
                 OSError,
                 AttributeError,
                 imaplib.IMAP4.error,
-                poplib.error_proto) as e:
+                poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
+                ) as e:
 
             if "Authentication failed" in str(e):
                 showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później", parent=self.window)
@@ -1796,6 +1809,8 @@ class MailboxSelectionWindow(TemplateWindow):
                 AttributeError,
                 imaplib.IMAP4.error,
                 poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
                 ) as e:
 
             err_msg = str(e).lower()
@@ -1828,6 +1843,8 @@ class MailboxSelectionWindow(TemplateWindow):
                 AttributeError,
                 imaplib.IMAP4.error,
                 poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
                 ) as e:
 
             err_msg = str(e).lower()
