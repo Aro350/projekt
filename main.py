@@ -108,8 +108,10 @@ class Config:
         for key in list(self.__dict__.keys()):
             if key == "port":
                 self.__dict__[key] = 0
-            elif key == "date_list" or key == "filter":
+            elif key == "date_list":
                 self.__dict__[key] = []
+            elif key == "save_config_choice":
+                self.__dict__[key] = {}
             else:
                 self.__dict__[key] = ""
 
@@ -126,9 +128,22 @@ class Config:
             if hasattr(self, key):
                 setattr(self, key, value)
             else:
-                raise ValueError
+                raise ValueError(f"Nieznany klucz konfiguracji: '{key}'")
 
     def loadConfig(self, app):
+        if self.user_file_location:
+            success = app.user_file.convertFileToUsers(self.user_file_location)
+
+            if not success and not app.user_file.email_column and app.selectEmailColumnWindow():
+                success = app.user_file.convertFileToUsers(self.user_file_location)
+
+            if success:
+                app.user_file_text.config(text=self.user_file_location)
+                app.app_state.state["user_file_set"] = True
+                app.onUserFileLoaded()
+            else:
+                raise ValueError("Plik z użytkownikami zawiera błąd.")
+
         if self.address and self.port and self.protocol:
             app.mail_details.setFromConfig(self.address, self.port, self.protocol)
             if app.connection.connect(app.mail_details):
@@ -147,17 +162,12 @@ class Config:
             app.mailbox_text.config(text=self.chosen_mailbox)
             app.app_state.state["mailbox_set"] = True
 
-        if self.user_file_location:
-            if app.user_file.getUsers(self.user_file_location):
-                app.user_file_text.config(text=self.user_file_location)
-                app.app_state.state["user_file_set"] = True
-
         if self.save_location:
             app.file_save_path.save_location = self.save_location
             app.file_save_text.config(text=f"{self.save_location}/")
             app.app_state.state["save_loc_set"] = True
 
-        if self.save_method:
+        if self.save_method and app.app_state.state["user_file_set"]:
             app.file_save_path.setFromConfig(self.save_method)
             app.app_state.state["save_method_set"] = True
 
@@ -202,7 +212,7 @@ class Config:
         if "save_method" in active_keys:
             config_params["save_method"] = app.file_save_path.save_method
         if "filter" in active_keys:
-            config_params["filter_text"] = app.subject_filter.filter_text
+            config_params["filter_text"] = app.subject_filter.filter_text if app.subject_filter else ""
 
         temp = app.save_config_choice.copy()
         for key, value in app.save_config_choice.items():
@@ -244,6 +254,7 @@ class Connection:
             self.connect_host = imaplib.IMAP4_SSL(
                 mail_details.address,
                 mail_details.port)
+            self.connect_host.sock.settimeout(10)
             return True
 
         elif mail_details.protocol == "POP3":
@@ -252,6 +263,8 @@ class Connection:
             self.connect_host = poplib.POP3_SSL(
                 mail_details.address,
                 mail_details.port)
+            self.connect_host.sock.settimeout(10)
+
             return True
         return False
 
@@ -369,6 +382,7 @@ class Connection:
         if reauth:
             temp_window = TempWindow(window, "Logowanie", "Ponowne logowanie")
             time.sleep(2)
+            self.reconnect(self.mail_details, app_state)
             if self.auth(self.user_credentials):
                 temp_window.changeContent("Zalogowano")
                 if self.mail_details.protocol == "IMAP" and app_state.state["mailbox_set"]:
@@ -441,7 +455,9 @@ class MailboxDetails:
             self.mailbox_list = []
         for i in (connection.connect_host.list()[1]):
             if not b"doveco" in i:
-                self.mailbox_list.append(str(i).split(".")[1][2:-1])
+                match = re.search(r'\)\s+"?(.)"?\s+"?([^"]+)"?$', i.decode('utf-8'))
+                if match:
+                    self.mailbox_list.append(match.group(2))
         return self.mailbox_list
 
 
@@ -459,23 +475,21 @@ class MailData:
     # ---------------------------------------------------------
     def makeQuery(self):
         quotes = ["ON", "SINCE", "BEFORE"]
-        index = 0
 
         match self.date_choice:
             case "one_day":
-                self.query = [quotes[index], self.date_list[0].strftime("%d-%b-%Y")]
+                self.query = [quotes[0], self.date_list[0].strftime("%d-%b-%Y")]
 
             case "from_to":
-                self.date_list[1] = self.date_list[1] + dt.timedelta(days=1)
-                for date in self.date_list:
-                    self.query += [quotes[index + 1], date.strftime("%d-%b-%Y")]
-                    index += 1
+                query_date_end = self.date_list[1] + dt.timedelta(days=1)
+                self.query = [quotes[1], self.date_list[0].strftime("%d-%b-%Y"),
+                              quotes[2], query_date_end.strftime("%d-%b-%Y")]
             case "from":
-                self.query += [quotes[1], self.date_list[0].strftime("%d-%b-%Y")]
+                self.query = [quotes[1], self.date_list[0].strftime("%d-%b-%Y")]
 
             case "to":
-                self.date_list[0] = self.date_list[0] + dt.timedelta(days=1)
-                self.query += [quotes[2], self.date_list[0].strftime("%d-%b-%Y")]
+                query_date = self.date_list[0] + dt.timedelta(days=1)
+                self.query = [quotes[2], query_date.strftime("%d-%b-%Y")]
 
     def getMessage(self, download):
         if self.connection.protocol == "IMAP":
@@ -574,7 +588,7 @@ class MailData:
 
 class Download:
     def __init__(self, connection, mail_data, users_class_list, subject_filter, ask_log_file):
-        self.connection: Connection = connection.connect_host
+        self.connection = connection.connect_host
         self.mail_data: MailData = mail_data
         self.users_class_list: list[User] = users_class_list
         self.subject_filter: Filter = subject_filter
@@ -624,6 +638,18 @@ class Download:
             filename = attachment.get_filename()
             payload = attachment.get_payload(decode=True)
             # print(f"Znaleziono: {filename}")
+
+            if payload is None or filename is None:
+                payload, filename = self.extractPayload(attachment)
+
+            if payload is None:
+                display_name = filename or "nieznana nazwa"
+                showwarning("Ostrzeżenie", f"Pominięto załącznik '{display_name}': nie można odczytać zawartości.")
+                continue
+            if not filename:
+                showwarning("Ostrzeżenie", "Pominięto załącznik bez nazwy pliku.")
+                continue
+
             self.saveAttachments(payload, filename, full_save_path, user)
             if self.ask_log_file:
                 self.add_log(message, user, filename, full_save_path)
@@ -631,9 +657,6 @@ class Download:
     def saveAttachments(self, payload, filename, full_save_path, user):
         file_path = os.path.join(full_save_path, filename)
         try:
-            # if os.path.exists(file_path):
-            #     print(f"Plik {filename} użytkownika {user.username} już istnieje.")
-            # else:
             with open(f"{file_path}", "wb") as f:
                 f.write(payload)
                 self.attachment_count += 1
@@ -646,12 +669,21 @@ class Download:
                             exist_ok=True)
                 patoolib.extract_archive(archive=str(file_path), outdir=extract_dir)
         except Exception as e:
-            showerror("Błąd",f"Błąd zapisu pliku. {e}")
+            showerror("Błąd",f"Błąd zapisu pliku. {str(e)}")
+
+    def extractPayload(self, attachment):
+        if attachment.is_multipart():
+            for part in attachment.iter_parts():
+                payload, filename = self.extractPayload(part)
+                if payload is not None:
+                    return payload, filename
+            return None, None
+        return attachment.get_payload(decode=True), attachment.get_filename()
 
     def add_log(self, message, user, filename, full_save_path):
 
         date = str(parsedate_to_datetime(message.get("Date")).date())
-        user_name = f"{user.user_info['imie']} {user.user_info['nazwisko']}"
+        user_name = f"{user.username}"
         subject = str(message.get("Subject", "Brak tematu"))
         self.user_count.append(user.username)
         self.message_count.append(f"{message.get('From')}: {message.get('Message-ID')}")
@@ -673,10 +705,10 @@ class Download:
     def save_log(self, log_save_loc):
         today = datetime.datetime.today()
         if log_save_loc == "":
-            log_save_loc = f"dziennik_{today.strftime("%d-%m-%Y_%H-%M-%S")}.txt"
+            log_save_loc = f"dziennik_{today.strftime('%d-%m-%Y_%H-%M-%S')}.txt"
 
         with open(log_save_loc, "w", encoding="utf-8") as f:
-            f.write(f"***** Data utworzenia dziennika: {str(today.strftime("%d-%m-%Y  %H:%M:%S"))} *****\n")
+            f.write(f"***** Data utworzenia dziennika: {str(today.strftime('%d-%m-%Y  %H:%M:%S'))} *****\n")
             self.message_count = len(set(self.message_count))
             self.user_count = len(set(self.user_count))
             f.write(f"Pobrano: {self.attachment_count} załączników\n"
@@ -703,13 +735,7 @@ class FileSavePath:
         self.save_method_for_user = ""
         self.full_save_path = ""
 
-        self.types = ["imie",
-                      "nazwisko",
-                      "indeks",
-                      "rok",
-                      "grupa",
-                      "specjalizacja",
-                      "data_zapisu",
+        self.types = ["data_zapisu",
                       "czas_zapisu",
                       "data_odbioru",
                       "czas_odbioru"
@@ -728,23 +754,19 @@ class FileSavePath:
         self.example_receive_datetime = {"data_odbioru": datetime.datetime.today(),
                                          "czas_odbioru": datetime.datetime.now().time()}
 
-        self.example_user = User("jankowalski@email.pl",
-                                 "Jan",
-                                 "Kowalski",
-                                 "2",
-                                 "EF-ZI",
-                                 "1",
-                                 "123456")
+        self.example_user = None
 
     def setFromConfig(self, save_method):
         self.save_method = save_method
-        if self.save_method != "":
+        if self.save_method != "" and self.example_user is not None:
             self.example_save_text = self.replaceText(save_method,
                                                       self.example_user.user_info,
                                                       self.example_receive_datetime)
 
     def replaceText(self, raw_text, message_user_info, message_datetime):
         replaced_text = raw_text
+        message_datetime = message_datetime.copy()
+
         if any(time_word.lower() in raw_text.lower() for time_word in message_datetime.keys()):
             message_datetime["data_odbioru"] = message_datetime["data_odbioru"].strftime('%Y-%m-%d') if type(
                 message_datetime["data_odbioru"]) != str else message_datetime["data_odbioru"]
@@ -792,92 +814,79 @@ class Filter:
         return False
 
 class User:
-    username: str
-    first_name: str
-    surname: str
-    year: str
-    specialization: str
-    group: str
-    index: str
+    def __init__(self,user_dict, email_column):
+        self.username = ""
+        self.user_info = {}
+        self.fillUserAttribs(user_dict, email_column)
 
-    def __init__(self,
-                 username=None,
-                 first_name=None,
-                 surname=None,
-                 year=None,
-                 specialization=None,
-                 group=None,
-                 index=None):
-        self.username = username
-        self.user_info = {
-            "imie": first_name,
-            "nazwisko": surname,
-            "rok": year,
-            "grupa": group,
-            "specjalizacja": specialization,
-            "indeks": index
-        }
+    def fillUserAttribs(self,user_dict, email_column):
+        self.username = user_dict.pop(email_column)
+        self.user_info = user_dict
+        return
 
 class UserFile:
     def __init__(self):
         self.user_file_location = ""
+        self.data = None
         self.users_list = []
         self.users_class_list: list[User] = []
-
-    def getUsers(self, user_file_location):
-        if self.setUserFile(user_file_location):
-            if self.convertData():
-                return True
-            showerror("Błąd", "W pliku nie znaleziono adresów email \n"
-                              "lub \nadresy email nie są z domeny @stud.prz.edu.pl")
-            return False
-        else:
-            return False
+        self.column_names = []
+        self.email_column = ""
 
     def setUserFile(self, user_file_location):
-        temp_file_location = user_file_location
-        if temp_file_location == "":
-            showwarning("Ostrzeżenie", "Nie wybrano pliku z użytkownikami")
-            return False
+        if user_file_location == "":
+            raise ValueError("Nie wybrano pliku z użytkownikami")
         else:
             self.user_file_location = user_file_location
             return True
 
-    def convertData(self):
-        try:
-            users = pd.read_excel(self.user_file_location)
+    def getDataFromFile(self):
+        # axis 0 = rows
+        # axis 1 = columns
+        data = pd.read_excel(self.user_file_location)
+        data = data.dropna(axis=0, how="all")
+        data = data.dropna(axis=1, how="all")
+        data = data.reset_index(drop=True)
+        data = data.fillna("NONE")
+        if len(data)<=0:
+            raise ValueError("Plik z użytkownikami jest pusty")
+        self.data = data
+        self.normalizeColumns()
+        return True
 
-            # axis 0 = rows
-            # axis 1 = columns
+    def normalizeColumns(self):
+        if "@" not in str(self.data.iloc[0]).lower() and not any(c.isdigit() for c in str(self.data.iloc[0]).lower()):
+            self.data.columns = self.data.iloc[0]
+            self.data = self.data[1:].reset_index(drop=True)
+        self.column_names = self.removeSpecialCharacters(self.data.columns)
+        self.column_names = [x.capitalize() for x in self.column_names]
+        self.data.columns = self.column_names
+        return True
 
-            users = users.dropna(axis=0, how="all")
+    def getUsers(self):
+        duplicated_users = self.findDuplicates(self.data, self.email_column)
+        duplicated_users_list = ""
+        for key, value in duplicated_users.items():
+            duplicated_users_list += f"Wiersz: {str(key)}, Adres: {str(value)}\n"
+        if len(duplicated_users_list) != 0:
+            showwarning("Ostrzeżenie", f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
+        self.users_list = list(self.data.to_dict("index").values())
 
-            users = users.dropna(axis=1, how="all")
+    def convertFileToUsers(self, user_file_location):
+        self.setUserFile(user_file_location)
+        self.getDataFromFile()
+        if not self.email_column and not self.findEmailColumn():
+            return False
+        self.getUsers()
+        self.convertUsers()
+        return True
 
-            users = users.reset_index(drop=True)
-            if "@" not in str(users.iloc[0]).lower():
-                users.columns = users.iloc[0]
-                users = users[1:].reset_index(drop=True)
-
-            column_name = self.findEmailColumn(users)
-            if column_name[0]:
-                column_name = column_name[1]
-            else:
-                return False
-            duplicated_users = self.findDuplicates(users, column_name)
-            duplicated_users_list = ""
-            for key, value in duplicated_users.items():
-                duplicated_users_list += f"Wiersz: {str(key)}, Adres: {str(value)}\n"
-            if len(duplicated_users_list) != 0:
-                showwarning("Ostrzeżenie", f"W pliku znajdują się zduplikowane adresy email:\n{duplicated_users_list}")
-
-            users.columns = users.columns.str.lower()
-            self.users_list = list(users.to_dict("index").values())
-            self.convertUsers()
-            return True
-
-        except Exception as e:
-            showerror("Błąd",e)
+    def removeSpecialCharacters(self, column_names):
+        characters = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
+        temp_string = " ".join(column_names)
+        temp_string = temp_string.translate(characters)
+        fixed_columns = temp_string.split(" ")
+        return fixed_columns
 
     def findDuplicates(self, users, column_name):
         users_list = users[column_name].tolist()
@@ -885,22 +894,14 @@ class UserFile:
         duplicated_users = {}
         for i, status in enumerate(duplicates_list):
             if status:
-                duplicated_users[i + 1] = users_list[i]
+                duplicated_users[i + 2] = users_list[i]
         return duplicated_users
 
     def convertUsers(self):
         for user_from_file in self.users_list:
             if not self.fixValues(user_from_file):
                 continue
-            user_class = User(
-                user_from_file['email'],
-                user_from_file['imie'],
-                user_from_file['nazwisko'],
-                user_from_file['rok'],
-                user_from_file['specjalizacja'],
-                user_from_file['grupa'],
-                user_from_file['indeks']
-            )
+            user_class = User(user_from_file, self.email_column)
             self.users_class_list.append(user_class)
 
     def fixValues(self, user):
@@ -908,21 +909,23 @@ class UserFile:
             user[key] = str(value).strip()
             try:
                 if value != value: user[key] = ""
-                if user["email"] == "": return False
+                if user[self.email_column] == "": return False
                 user[key] = int(float(value))
             except Exception:
                 continue
         return True
 
-    def findEmailColumn(self, data: pd.DataFrame):
-        for column_name in data.columns:
-            for item in data[column_name].head(1):
-                try:
-                    if "@stud.prz.edu.pl" in item:
-                        return [True, column_name]
-                except Exception:
-                    continue
-        return [False]
+    def findEmailColumn(self):
+        if self.column_names:
+            for column_name in self.column_names:
+                for item in self.data[column_name].head(5):
+                    try:
+                        if "@" in str(item) or column_name.lower() in ['email','e-mail']:
+                            self.email_column = column_name
+                            return True
+                    except Exception:
+                        continue
+            return False
 
 class Date:
     # one_day
@@ -1008,7 +1011,7 @@ class MainWindow:
                  master,
                  app_state,
                  mail_details,
-                 mailbox_details,
+                  mailbox_details,
                  connection,
                  config,
                  user_file,
@@ -1029,7 +1032,7 @@ class MainWindow:
         self.file_save_path: FileSavePath = file_save_path
 
         self.user_credentials = UserCredentials()
-        self.subject_filter = Filter()
+        self.subject_filter = None
 
         self.save_config_choice = {}
 
@@ -1057,7 +1060,7 @@ class MainWindow:
         self.user_file_button = ttk.Button(self.master, text="Wczytaj plik z użytkownikami",command=self.getUserFileLocation)
         self.file_save_location_button = ttk.Button(self.master, text="Wybierz lokalizację zapisu",command=self.getFileSaveLocation)
         self.set_date_button = ttk.Button(self.master, text="Wybierz zakres czasu", command=self.openDateSettings)
-        self.set_save_path_button = ttk.Button(self.master, text="Wybierz sposób zapisu", command=self.openSavePath)
+        self.set_save_path_button = ttk.Button(self.master, text="Wybierz sposób zapisu", command=self.openSavePath, state=tk.DISABLED)
         self.filter_button = ttk.Button(self.master, text="Dodaj filtr tematu", command=self.openFilter)
         self.download_button = ttk.Button(self.master, text="Pobierz załączniki", command=self.downloadAttachments,state=tk.DISABLED)
         self.save_config_button = ttk.Button(self.master, text="Zapisz konfigurację", command=self.saveConfig)
@@ -1178,8 +1181,13 @@ class MainWindow:
             showinfo("Sukces", "Pomyślnie wczytano plik konfiguracyjny.")
             return True
 
+        except ValueError as e:
+            showerror("Błąd", str(e))
+            self.config.clearConfig()
+            return False
+
         except Exception as e:
-            showerror("Błąd", f"Plik konfiguracyjny zawiera błąd:\n{e}")
+            showerror("Błąd", f"Plik konfiguracyjny zawiera błąd:\n{type(e)}\n{e}\n{e.__class__.__name__}")
             self.config.clearConfig()
             return False
 
@@ -1197,7 +1205,7 @@ class MainWindow:
         self.user_file = UserFile()
         self.file_save_path = FileSavePath()
         self.date = Date()
-        self.subject_filter = Filter()
+        self.subject_filter = None
 
         self.config_text.config(text="")
         self.refreshUi()
@@ -1250,7 +1258,6 @@ class MainWindow:
             showinfo("Połączenie", "Rozłączono z pocztą")
         self.refreshUi()
 
-
     def logoutMail(self):
         self.disconnectMail(flag=1)
         self.connection.clearUserInfo()
@@ -1282,12 +1289,57 @@ class MainWindow:
             showerror("Błąd", "Okno jest już otwarte")
 
     def getUserFileLocation(self):
-        user_file_loc = askopenfilename(title="Wybierz plik Excel z użytkownikami",
-                                        filetypes=[("Excel files", "*.xlsx *.xls")])
-        if self.user_file.getUsers(user_file_loc):
-            self.user_file_text.config(text=user_file_loc)
-            self.app_state.state["user_file_set"] = True
-            self.refreshUi()
+        try:
+            user_file_loc = askopenfilename(title="Wybierz plik Excel z użytkownikami",
+                                            filetypes=[("Excel files", "*.xlsx *.xls")])
+            if not user_file_loc:
+                return False
+            self.user_file = UserFile()
+            if self.user_file.convertFileToUsers(user_file_loc):
+                self.onUserFileLoaded()
+            elif self.selectEmailColumnWindow() and self.user_file.convertFileToUsers(user_file_loc):
+                self.onUserFileLoaded()
+            else:
+                return False
+        except ValueError as e:
+            showerror("Błąd", f"{e}")
+        except Exception as e:
+            showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
+
+    def selectEmailColumnWindow(self):
+        self.master.bell()
+        if askyesno("Błąd","Nie znaleziono kolumny zawierajacej adres email. \nWybrać kolumnę ręcznie?"):
+            temp_colum_selection = TempWindow(self.master, "Wybór kolumny",
+                                              "Wybierz kolumnę zawierającą adresy/nazwy użytkowników:")
+            temp_colum_selection.addCombobox(self.user_file.column_names)
+            self.master.wait_window(temp_colum_selection.temp_window)
+            chosen_column = temp_colum_selection.selected_value.get()
+            if chosen_column:
+                self.user_file.email_column = chosen_column
+                return True
+        return False
+
+    def onUserFileLoaded(self):
+        self.user_file_text.config(text=self.user_file.user_file_location)
+        self.app_state.state["user_file_set"] = True
+        self.file_save_path.types = self.user_file.column_names + list(self.file_save_path.download_datetime.keys()) + list(self.file_save_path.example_receive_datetime.keys())
+        self.file_save_path.types.remove(self.user_file.email_column)
+        self.app_state.state["save_method_set"] = False
+        self.file_save_path.save_method = ""
+        self.file_save_path.save_method_for_user = ""
+        self.file_save_path.example_save_text = ""
+        self.setExampleUser()
+        self.set_save_path_button.config(state=tk.NORMAL)
+        self.refreshUi()
+
+    def setExampleUser(self):
+        self.file_save_path.example_user = None
+        for user in self.user_file.users_class_list:
+            if "NONE" not in user.user_info.values():
+                self.file_save_path.example_user = user
+                break
+        if not self.file_save_path.example_user:
+            self.file_save_path.example_user = self.user_file.users_class_list[0]
 
     def getFileSaveLocation(self):
         save_loc = askdirectory(title="Wybierz folder do zapisu załączników")
@@ -1366,6 +1418,7 @@ class MainWindow:
             if ask_log_file:
                 download.save_log(log_save_loc)
             showinfo("Gotowe", "Pobieranie zakończone")
+            self.download_flag = 0
             del mail_data
             del download
 
@@ -1376,6 +1429,8 @@ class MainWindow:
                 AttributeError,
                 imaplib.IMAP4.error,
                 poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
                 ) as e:
 
             temp_window.closeWindow()
@@ -1491,7 +1546,7 @@ class MainWindow:
         self.refreshUi()
 
     def onFilterSet(self):
-        self.filter_text.config(text=self.subject_filter.filter_text)
+        self.filter_text.config(text=self.subject_filter.filter_text if self.subject_filter else "")
 
     def onConfigSave(self, checkbutton_vars):
         self.save_config_choice = checkbutton_vars
@@ -1597,17 +1652,22 @@ class MailConnectionWindow(TemplateWindow):
                     showinfo("Połączenie",
                              f"Połączono:\nAdres: {self.address.get()}\nPort: {self.port.get()}\nProtokół: {self.protocol.get()}")
                     self.onConnectionSuccess(mail_details)
+            else:
+                self.window.focus_force()
             self.connection_status.set("")
             self.window.update_idletasks()
 
         except (socket.gaierror, OSError):
             showerror("Błąd", "Błąd połączenia.\nSprawdź połączenie internetowe i dostępność serwera.", parent = self.window)
             self.connection_status.set("")
+            self.window.focus_force()
+
             return False
-        except TimeoutError:
+        except (TimeoutError,socket.timeout):
             showerror("Błąd",
                       "Przekroczono limit czasu połączenia. Otrzymano błędny port lub usługa jest chwilowo niedostępna", parent = self.window)
             self.connection_status.set("")
+            self.window.focus_force()
             return False
         except Exception as e:
             self.connection_status.set("")
@@ -1640,7 +1700,7 @@ class LoginWindow(TemplateWindow):
         self.status_label = ttk.Label(self.window, textvariable=self.login_status)
 
     def placeWidgets(self):
-        self.window.geometry("")
+        self.window.geometry("230x130")
 
         ttk.Label(self.window, text="Login").grid(row=0, column=0, padx=(5,10), pady=5)
         self.entry_username.grid(row=0, column=1, padx=5, pady=5, sticky="nswe")
@@ -1679,17 +1739,28 @@ class LoginWindow(TemplateWindow):
                 OSError,
                 AttributeError,
                 imaplib.IMAP4.error,
-                poplib.error_proto) as e:
+                poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
+                ) as e:
 
             if "Authentication failed" in str(e):
                 showerror("Błąd logowania", "Sprawdź dane logowania \nlub \nspróbuj ponownie później", parent=self.window)
                 self.login_status.set("")
                 self.window.update_idletasks()
+
+            elif "auth failure" in str(e) or "access disabled" in str(e):
+                showerror("Błąd połączenia","Błędne dane logowania\nlub\ndostęp przez wybrany protokół nie jest włączony")
+                self.login_status.set("")
+                self.window.update_idletasks()
+
             elif self.connection.check_connection_info(self.window, self.app_state):
                 self.submit()
                 return True
+
             elif all([word in str(e) for word in ("NoneType", "login")]):
                 self.login_status.set("")
+
             else:
                 pass
                 # showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
@@ -1738,6 +1809,8 @@ class MailboxSelectionWindow(TemplateWindow):
                 AttributeError,
                 imaplib.IMAP4.error,
                 poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
                 ) as e:
 
             err_msg = str(e).lower()
@@ -1752,7 +1825,7 @@ class MailboxSelectionWindow(TemplateWindow):
                 return True
             return False
         except Exception as e:
-            showerror("Błąd",e)
+            showerror("Błąd",(e))
             pass
 
 
@@ -1770,6 +1843,8 @@ class MailboxSelectionWindow(TemplateWindow):
                 AttributeError,
                 imaplib.IMAP4.error,
                 poplib.error_proto,
+                TimeoutError,
+                socket.timeout,
                 ) as e:
 
             err_msg = str(e).lower()
@@ -2063,21 +2138,24 @@ class SavePathWindow(TemplateWindow):
                 self.preview_value.config(text=self.path_entry.get())
                 self.example_preview.config(text=self.file_save_path.replaceText(self.path_entry.get(),
                                                                                  self.file_save_path.example_user.user_info,
-                                                                                 self.file_save_path.example_datetime))
+                                                                                 self.file_save_path.example_receive_datetime))
+                return
+            if event.state & 0x4:  # ← 0x4 is the Ctrl modifier flag
                 return
         except AttributeError:
             pass
 
         text = self.path_entry.get()
-
-        if "imię" in text.lower():
-            text = re.sub("Imię", "Imie", text, flags=re.IGNORECASE)
-            self.path_entry.delete(0, tk.END)
-            self.path_entry.insert(0, text)
+        characters = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
+        text = text.translate(characters)
+        cursor_pos = self.path_entry.index(tk.INSERT)
+        self.path_entry.delete(0, tk.END)
+        self.path_entry.insert(0, text)
+        self.path_entry.icursor(cursor_pos)
 
         new_text = text
         for word in self.types:
-            if word in new_text.lower() and f"{{{word}}}" not in new_text.lower():
+            if word.lower() in new_text.lower() and f"{{{word.lower()}}}" not in new_text.lower():
                 new_text = re.sub(word, f"{{{word.capitalize()}}}", new_text, flags=re.IGNORECASE)
 
         for brackets in ["{{", "}}"]:
@@ -2246,8 +2324,18 @@ class TempWindow:
         self.temp_window.grab_set()
         self.text_label = ttk.Label(self.temp_window,
                                     text=text)
-        self.text_label.pack()
+        self.text_label.grid(row=0,column=0,columnspan=2)
         self.temp_window.update()
+
+    def addCombobox(self, columns=None):
+        self.text_label.grid(padx=10,pady=5)
+        self.selected_value = tk.StringVar()
+        self.temp_cb = ttk.Combobox(self.temp_window, values=columns, width=25, textvariable=self.selected_value)
+        self.temp_cb.grid(row=1,column=0,columnspan=2,padx=10,pady=(5,10))
+        self.btn = ttk.Button(self.temp_window, text="Zatwierdź", command=self.closeWindow)
+        self.btn.grid(row=2, column=0, columnspan=2, pady=(0, 10))
+
+        self.temp_window.geometry("")
 
     def closeWindow(self):
         self.temp_window.destroy()
