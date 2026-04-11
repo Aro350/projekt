@@ -8,8 +8,8 @@ from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
 import poplib
 from tkinter.messagebox import showwarning, showerror
-from models import FileSavePath, Filter, User
-from connection import Connection
+from logic.models import FileSavePath, Filter, User
+from logic.connection import Connection
 
 class MailData:
     def __init__(self, connection, user_file, date, file_save_path):

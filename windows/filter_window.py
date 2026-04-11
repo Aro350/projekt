@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from models import Filter
+from logic.models import Filter
 from windows.template_window import TemplateWindow
 class FilterWindow(TemplateWindow):
     def __init__(self, master, subject_filter, onClose, onFilterSet):

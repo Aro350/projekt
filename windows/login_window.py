@@ -3,8 +3,8 @@ import poplib
 import tkinter as tk
 from tkinter import ttk
 from tkinter.messagebox import showerror, showwarning, showinfo
-from connection import Connection, MailDetails
-from models import UserCredentials
+from logic.connection import Connection, MailDetails
+from logic.models import UserCredentials
 from windows.template_window import TemplateWindow
 import socket
 

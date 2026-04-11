@@ -4,10 +4,10 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.filedialog import askopenfilename, asksaveasfilename, askdirectory
 from tkinter.messagebox import showwarning, showerror, showinfo, askyesno, askretrycancel
-from models import UserFile, FileSavePath, Filter, Date, UserCredentials
-from connection import Connection, MailDetails, MailboxDetails
-from config import Config
-from mail import MailData, Download
+from logic.models import UserFile, FileSavePath, Filter, Date, UserCredentials
+from logic.connection import Connection, MailDetails, MailboxDetails
+from logic.config import Config
+from logic.mail import MailData, Download
 from windows.temp_window import TempWindow
 from windows.connection_window import MailConnectionWindow
 from windows.login_window import LoginWindow

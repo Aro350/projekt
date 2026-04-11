@@ -1,7 +1,7 @@
 import tkinter as tk
-from models import UserFile, FileSavePath, Date
-from connection import Connection, MailDetails, MailboxDetails
-from config import Config
+from logic.models import UserFile, FileSavePath, Date
+from logic.connection import Connection, MailDetails, MailboxDetails
+from logic.config import Config
 from windows.main_window import MainWindow
 # =========================
 # APLIKACJA

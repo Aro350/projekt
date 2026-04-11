@@ -5,7 +5,7 @@ import hashlib
 import tkinter as tk
 from cryptography.fernet import Fernet
 from tkinter.messagebox import showinfo
-from models import Filter, UserCredentials
+from logic.models import Filter, UserCredentials
 
 class Config:
     def __init__(self):

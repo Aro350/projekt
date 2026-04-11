@@ -1,7 +1,7 @@
 import re
 import tkinter as tk
 from tkinter import ttk
-from models import FileSavePath, User
+from logic.models import FileSavePath, User
 from windows.template_window import TemplateWindow
 class SavePathWindow(TemplateWindow):
     def __init__(self, master, file_save_path, onClose, onPathSetSuccess):

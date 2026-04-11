@@ -2,7 +2,7 @@ import datetime
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import Calendar
-from models import Date
+from logic.models import Date
 from windows.template_window import TemplateWindow
 class DateWindow(TemplateWindow):
     def __init__(self, master, date, onClose, onDateSetSuccess):

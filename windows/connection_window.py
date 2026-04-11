@@ -2,7 +2,7 @@ import socket
 import tkinter as tk
 from tkinter import ttk
 from tkinter.messagebox import showerror, showinfo
-from connection import MailDetails
+from logic.connection import MailDetails
 from windows.template_window import TemplateWindow
 
 class MailConnectionWindow(TemplateWindow):

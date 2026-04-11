@@ -2,7 +2,7 @@ import imaplib
 import poplib
 from tkinter import ttk
 from tkinter.messagebox import showerror, showinfo, askretrycancel
-from connection import Connection
+from logic.connection import Connection
 from windows.template_window import TemplateWindow
 import socket
 
