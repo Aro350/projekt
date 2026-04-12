@@ -271,16 +271,19 @@ class MainWindow:
         self.refreshUi()
 
     def logoutMail(self):
-        self.disconnectMail(flag=1)
-        self.connection.clearUserInfo()
-        if self.connection.connect(self.mail_details):
-            self.onConnectionSuccess(self.mail_details)
-            self.connection.protocol = self.mail_details.protocol
-            showinfo("Połączenie", "Wylogowano z poczty")
-        else:
-            self.connection_text.config(text="")
-        self.refreshUi()
-
+        try:
+            self.disconnectMail(flag=1)
+            self.connection.clearUserInfo()
+            if self.connection.connect(self.mail_details):
+                self.onConnectionSuccess(self.mail_details)
+                self.connection.protocol = self.mail_details.protocol
+                showinfo("Połączenie", "Wylogowano z poczty")
+            else:
+                self.connection_text.config(text="")
+            self.refreshUi()
+        except Exception:
+            showerror("Błąd","Błąd połączenia. Zamykanie sesji.")
+            
     def openMailboxSelection(self):
         if not self.mailbox_selection_opened:
             self.mailbox_selection_opened = True
