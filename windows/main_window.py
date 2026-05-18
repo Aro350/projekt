@@ -573,5 +573,5 @@ class MainWindow:
 
         config_save_location = asksaveasfilename(defaultextension=".json", filetypes=(("Json File", "*.json"),))
         if config_save_location:
-            self.config.save_selected_config(active_keys, self, config_save_location)
+            self.config.saveSelectedConfig(active_keys, self, config_save_location)
             self.save_config_text.config(text=config_save_location)
