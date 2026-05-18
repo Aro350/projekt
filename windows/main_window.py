@@ -431,7 +431,7 @@ class MainWindow:
             del temp_window
 
             if ask_log_file:
-                download.save_log(log_save_loc)
+                download.saveLog(log_save_loc)
             showinfo("Gotowe", "Pobieranie zakończone")
             self.download_flag = 0
             del mail_data

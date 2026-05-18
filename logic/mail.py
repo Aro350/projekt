@@ -134,6 +134,7 @@ class MailData:
                 user = username_dict[username]
                 return user
         return None
+
 class Download:
     def __init__(self, connection, mail_data, users_class_list, subject_filter, ask_log_file):
         self.connection = connection.connect_host
@@ -200,7 +201,7 @@ class Download:
 
             self.saveAttachments(payload, filename, full_save_path, user)
             if self.ask_log_file:
-                self.add_log(message, user, filename, full_save_path)
+                self.addLog(message, user, filename, full_save_path)
 
     def saveAttachments(self, payload, filename, full_save_path, user):
         file_path = os.path.join(full_save_path, filename)
@@ -228,7 +229,7 @@ class Download:
             return None, None
         return attachment.get_payload(decode=True), attachment.get_filename()
 
-    def add_log(self, message, user, filename, full_save_path):
+    def addLog(self, message, user, filename, full_save_path):
 
         date = str(parsedate_to_datetime(message.get("Date")).date())
         user_name = f"{user.username}"
@@ -250,7 +251,7 @@ class Download:
 
         self.log_data[date][user_name][subject][full_save_path].append(filename)
 
-    def save_log(self, log_save_loc):
+    def saveLog(self, log_save_loc):
         today = datetime.datetime.today()
         if log_save_loc == "":
             log_save_loc = f"dziennik_{today.strftime('%d-%m-%Y_%H-%M-%S')}.txt"
