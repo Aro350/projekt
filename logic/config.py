@@ -106,7 +106,7 @@ class Config:
                 self.save_config_choice[key] = var
             app.save_config_choice = self.save_config_choice
 
-    def save_selected_config(self, active_keys, app, save_location):
+    def saveSelectedConfig(self, active_keys, app, save_location):
         config_params = {}
 
         if "mail" in active_keys:
