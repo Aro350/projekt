@@ -260,9 +260,9 @@ class Download:
             f.write(f"***** Data utworzenia dziennika: {str(today.strftime('%d-%m-%Y  %H:%M:%S'))} *****\n")
             self.message_count = len(set(self.message_count))
             self.user_count = len(set(self.user_count))
-            f.write(f"Pobrano: {self.attachment_count} załączników\n"
+            f.write(f"Pobrano: {self.attachment_count} {'załącznik' if self.attachment_count == 1 else 'załączniki' if self.attachment_count in [2, 3, 4] else 'załączników'}\n"
                     f"      z: {self.message_count} wiadomości\n"
-                    f"     od: {self.user_count} użytkowników\n")
+                    f"     od: {self.user_count} {'użytkownika' if self.attachment_count == 1 else 'użytkowników'}\n")
 
             for date in sorted(self.log_data):
                 f.write(f"{date}\n")
