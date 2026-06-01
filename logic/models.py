@@ -117,9 +117,9 @@ class UserFile:
         # axis 1 = columns
         data = pd.read_excel(self.user_file_location)
         data = data.dropna(axis=0, how="all")
-        data = data.dropna(axis=1, how="all")
+        data = data.loc[:, ~data.columns.str.contains('^Unnamed')]
         data = data.reset_index(drop=True)
-        data = data.fillna("NONE")
+        data = data.fillna("")
         if len(data)<=0:
             raise ValueError("Plik z użytkownikami jest pusty")
         self.data = data
