@@ -277,14 +277,16 @@ class UserCredentials:
 
     def validateUsername(self, username):
         if not username:
-            showerror("Błąd", "Nazwa użytkownika nie może być pusta")
-            return False
-        else:
-            return True
+            raise ValueError("Nazwa użytkownika nie może być pusta")
+        if "@" in username:
+            pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+            if not re.match(pattern, username) :
+                raise ValueError("Wprowadzona nazwa użytkownika ma "
+                                 "błędny format")
+        return True
 
     def validatePassword(self, password):
         if not password:
-            showerror("Błąd", "Hasło nie może być puste")
-            return False
+            raise ValueError("Hasło nie może być puste")
         else:
             return True

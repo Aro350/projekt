@@ -46,12 +46,12 @@ class LoginWindow(TemplateWindow):
         self.status_label.grid(row=4, column=0, columnspan=2, pady=(5,10))
 
     def submit(self):
-        user_credentials = UserCredentials(username=self.username.get().strip(),
-                                           password=self.password.get())
-
-        if not user_credentials.checkCredentials(): return
-
         try:
+            user_credentials = UserCredentials(username=self.username.get().strip(),
+                                               password=self.password.get())
+
+            if not user_credentials.checkCredentials(): return False
+
             if not self.connection.check_connection():
                 if self.connection.reconnect(self.mail_details, self.app_state):
                     pass
@@ -100,6 +100,9 @@ class LoginWindow(TemplateWindow):
                 # showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
             self.window.focus_force()
             return
+
+        except ValueError as e:
+            showerror("Błąd", f"{e}")
 
         except Exception as e:
             showerror("Błąd", f"{type(e)}______{e}_______{e.__class__.__name__}")
