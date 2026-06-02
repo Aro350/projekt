@@ -72,6 +72,7 @@ class FileSavePath:
     def addUserInfo(self, user_info, message_datetime):
         self.save_method_for_user = self.replaceText(self.save_method,user_info,message_datetime)
         self.makeSavePath()
+
 class Filter:
     def __init__(self):
         self.filter_text = ""
@@ -86,6 +87,7 @@ class Filter:
             if text in subject:
                 return True
         return False
+
 class User:
     def __init__(self,user_dict, email_column):
         self.username = ""
@@ -96,6 +98,7 @@ class User:
         self.username = user_dict.pop(email_column)
         self.user_info = user_dict
         return
+
 class UserFile:
     def __init__(self):
         self.user_file_location = ""
@@ -116,20 +119,27 @@ class UserFile:
         # axis 0 = rows
         # axis 1 = columns
         data = pd.read_excel(self.user_file_location)
-        data = data.dropna(axis=0, how="all")
-        data = data.loc[:, ~data.columns.str.contains('^Unnamed')]
-        data = data.reset_index(drop=True)
-        data = data.fillna("")
         if len(data)<=0:
             raise ValueError("Plik z użytkownikami jest pusty")
+        data = data.dropna(axis=0, how="all")
+        data = data.dropna(axis=1, how="all")
+        self.checkColumnsNames(data)
+        data = data.reset_index(drop=True)
+        data = data.fillna("")
         self.data = data
         self.normalizeColumns()
         return True
 
+    def checkColumnsNames(self,data):
+        columns = data.columns
+        invalid_header = any("Unnamed" in str(col) or
+                             "@" in str(col) or
+                             not any(c.isalpha() for c in str(col))
+                             for col in columns)
+        if invalid_header:
+            raise ValueError("Co najmniej jeden nagłówek kolumny jest pusty lub nieprawidłowy.\nPopraw go i spróbuj ponownie")
+
     def normalizeColumns(self):
-        if "@" not in str(self.data.iloc[0]).lower() and not any(c.isdigit() for c in str(self.data.iloc[0]).lower()):
-            self.data.columns = self.data.iloc[0]
-            self.data = self.data[1:].reset_index(drop=True)
         self.column_names = self.removeSpecialCharacters(self.data.columns)
         self.column_names = [x.capitalize() for x in self.column_names]
         self.data.columns = self.column_names
@@ -147,6 +157,8 @@ class UserFile:
     def convertFileToUsers(self, user_file_location):
         self.setUserFile(user_file_location)
         self.getDataFromFile()
+        self.users_class_list = []
+        self.users_list = []
         if not self.email_column and not self.findEmailColumn():
             return False
         self.getUsers()
@@ -198,6 +210,7 @@ class UserFile:
                     except Exception:
                         continue
             return False
+
 class Date:
     # one_day
     # from_to

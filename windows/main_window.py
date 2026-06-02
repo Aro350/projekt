@@ -309,7 +309,8 @@ class MainWindow:
                                             filetypes=[("Excel files", "*.xlsx *.xls")])
             if not user_file_loc:
                 return False
-            self.user_file = UserFile()
+            if not self.user_file:
+                self.user_file = UserFile()
             if self.user_file.convertFileToUsers(user_file_loc):
                 self.onUserFileLoaded()
             elif self.selectEmailColumnWindow() and self.user_file.convertFileToUsers(user_file_loc):
