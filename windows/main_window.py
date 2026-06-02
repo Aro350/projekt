@@ -311,6 +311,7 @@ class MainWindow:
                 return False
             if not self.user_file:
                 self.user_file = UserFile()
+            self.user_file.email_column = ""
             if self.user_file.convertFileToUsers(user_file_loc):
                 self.onUserFileLoaded()
             elif self.selectEmailColumnWindow() and self.user_file.convertFileToUsers(user_file_loc):

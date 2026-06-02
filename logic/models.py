@@ -122,7 +122,8 @@ class UserFile:
         if len(data)<=0:
             raise ValueError("Plik z użytkownikami jest pusty")
         data = data.dropna(axis=0, how="all")
-        data = data.dropna(axis=1, how="all")
+        cols_to_drop = [col for col in data.columns if "unnamed" in str(col).lower() and data[col].isna().all()]
+        data = data.drop(columns=cols_to_drop)
         self.checkColumnsNames(data)
         data = data.reset_index(drop=True)
         data = data.fillna("")
@@ -161,6 +162,8 @@ class UserFile:
         self.users_list = []
         if not self.email_column and not self.findEmailColumn():
             return False
+        if (self.data[self.email_column] == "").all():
+            raise ValueError("Kolumna z adresami e-mail jest pusta")
         self.getUsers()
         self.convertUsers()
         return True
